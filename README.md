@@ -55,6 +55,11 @@ idle, what it spawned, and what it is costing you.
   the memory they hold together.
 - **Where it came from.** Executable path, full command line, parent process,
   controlling terminal, start time.
+- **What each agent has spent.** Tokens since the agent started, subagents
+  included, next to its memory and uptime — the counterpart of CPU time, kept
+  from the tool's own logs. Point at it for the last 24 hours, hour by hour,
+  and what the whole project has spent. See [What each agent
+  spent](#what-each-agent-spent).
 - **What is safe to reclaim.** Agents idle for over an hour, totalled, behind one
   button. Anything still working — including an agent waiting on a build it
   started — is never in that total.
@@ -253,6 +258,47 @@ taken 40% of the week — and Corral does not say it has.
 
 Still no network. These are files the tools put on your machine.
 
+### What each agent spent
+
+Every row for Claude Code, Codex, Kiro CLI or Kiro Crew carries a **tokens**
+figure: what that agent has gone through since its process started. It is the
+token counterpart of CPU time — a running total for the life of the process —
+except that nothing keeps tokens per process, so Corral keeps it, from the logs
+each tool writes turn by turn.
+
+- **Subagents count.** Claude Code gives every subagent its own transcript — a
+  Task call, an Explore pass, a teammate in an agent team, a subagent's own
+  subagent — in `<session>/subagents/`, and none of their turns appear in the
+  main transcript. On one session on the machine this was written on, the
+  subagents had done most of the work. Kiro Crew runs several sessions at once,
+  one engine each; every session whose lock names one of its engines is its.
+- **Counted once.** Claude writes one message many times as it streams; the
+  largest copy is kept and the others are not counted. Codex sometimes repeats a
+  `token_count` event; Corral differences its running total instead of adding
+  up turns, which reproduces Codex's own figure for every rollout to the token.
+  A log belongs to one agent at a time, and a session resumed by a new process
+  is split at the moment that process started.
+- **Hour by hour, on the clock the logs kept.** Point at the figure for the last
+  24 hours as bars, one an hour, the same instrument as the header graph — and,
+  when other agents or earlier sessions worked in the same folder, what the
+  project has spent today, over 7 days and in all. An hour before the agent
+  started is an empty slot; an hour it spent waiting is a zero.
+- **Kept, and counted in the background.** Corral counts from the menu bar
+  with its window closed. Every turn lands in the hour its own timestamp says,
+  so a Mac that slept or a Corral that was quit delays the count rather than
+  losing it: an agent Corral was following is caught up from its log on the
+  next launch. Counts are kept in
+  `~/Library/Application Support/Corral/token-ledger.json` — numbers, log paths
+  and project paths, nothing that was said — for 180 days after the agent ends.
+
+The figure is the whole total, cache reads included, because that is what the
+model went through and cache reads are most of what a long session costs. The
+popover splits it into output, input, cache writes and cache reads, so it is
+plain what kind of work it was. Kiro is counted in credits, which is what it
+records. Cursor writes no running total anywhere, Antigravity's conversations
+are encrypted and Windsurf writes nothing readable, so their rows have no
+figure rather than a zero.
+
 ## What it costs to run
 
 A monitor that shows you what is eating your CPU has no business being on that
@@ -274,6 +320,12 @@ read from where the last one stopped. That is **~3 s** once, in the background,
 and **~30 ms** every refresh after it. Written the obvious way — `Data` split by
 `Collection.split`, which walks it a byte at a time through the protocol — the
 same pass took over four minutes.
+
+The per-agent token figures are the same kind of job and get the same care. The
+first pass after launch reads each running agent's logs back to the moment it
+started — **2.8 s** for 13 agents on this machine, 1.7 s of it a single session
+of five billion tokens and 70 subagents — on a queue of its own. After that a pass
+every five seconds reads only what the agents have written since: **~4 ms**.
 
 ## On disk
 
@@ -434,6 +486,10 @@ working directories, `proc_pid_rusage` for CPU and memory.
 It reads the *argument* vector and deliberately stops there — the environment
 block sits right after it in the same buffer and is full of API keys, so Corral
 never reads that far.
+
+The token ledger holds counts, the paths of the logs they came from and the
+project folders they were spent in. Nothing an agent said is copied out of a
+transcript.
 
 Nothing leaves your machine, with one exception you have to turn on yourself:
 **Ask Kiro for Account Usage** sends Kiro CLI's own sign-in token to Kiro's

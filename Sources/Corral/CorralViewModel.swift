@@ -46,7 +46,11 @@ final class CorralViewModel: ObservableObject {
     /// enough to catch a morning's worth of abandoned sessions.
     static let staleThreshold: TimeInterval = 3_600
 
-    private let inventory = AgentInventory()
+    /// The app's inventory keeps a token ledger; the CLI's and the tests' do
+    /// not. Making the ledger does nothing until the first refresh asks it to
+    /// count, so the test initialiser below, which never refreshes, never
+    /// touches it.
+    private let inventory = AgentInventory(tokens: TokenLedger())
     private var timer: Timer?
 
     init() {
@@ -124,6 +128,21 @@ final class CorralViewModel: ObservableObject {
     func sessionContext(for group: AgentGroup) -> ContextUse? {
         inventory.sessionContext(for: group)
     }
+
+    /// What this agent has spent since it started, subagents included.
+    func tokens(for group: AgentGroup) -> TokenSnapshot.Usage? {
+        inventory.tokens(for: group)
+    }
+
+    /// Everything spent in this agent's working directory, by every agent
+    /// Corral has seen there.
+    func projectTokens(for group: AgentGroup) -> TokenSnapshot.Usage? {
+        guard let path = group.root.workingDirectory, path != "/" else { return nil }
+        return inventory.projectTokens(at: path)
+    }
+
+    /// Writes the token ledger before the app goes.
+    func flushTokens() { inventory.flushTokens() }
 
     /// What each account has left, as of the last time that tool wrote it down.
     var accountUsages: [ToolUsage] { inventory.accountUsages }

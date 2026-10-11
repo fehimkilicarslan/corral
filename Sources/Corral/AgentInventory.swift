@@ -51,6 +51,16 @@ final class AgentInventory {
     /// of the agent and reading it costs a sysctl over a megabyte buffer.
     private var sessionIdCache: [pid_t: String?] = [:]
 
+    /// What each agent has spent, counted from the tools' logs and kept
+    /// between launches. Nil for the CLI and for tests: a one-shot `--list`
+    /// must not wait on reading every transcript back to its start, and
+    /// neither should write the ledger the app keeps.
+    private let tokenLedger: TokenLedger?
+
+    init(tokens: TokenLedger? = nil) {
+        tokenLedger = tokens
+    }
+
     private(set) var groups: [AgentGroup] = []
     private(set) var activity: [pid_t: Activity] = [:]
     private(set) var lastRefresh: Date?
@@ -202,6 +212,7 @@ final class AgentInventory {
         updateActivity(for: built, at: now)
         sessionIdCache = sessionIdCache.filter { liveProcesses.contains($0.key) }
         sessionActivities.refresh(built, sessionId: sessionId(for:), now: now)
+        countTokens(built, now: now)
         usages.refresh(now: now)
         modelUsages.refresh(now: now)
         groups = built.sorted {
@@ -211,6 +222,29 @@ final class AgentInventory {
         }
         lastRefresh = now
         return groups
+    }
+
+    /// Hands every running agent to the ledger, with the log the session
+    /// reader matched it to. Cheap here — the reading happens on the ledger's
+    /// own queue.
+    private func countTokens(_ groups: [AgentGroup], now: Date) {
+        guard let tokenLedger else { return }
+        var claims: [TokenLedger.Claim] = []
+        var alive = Set<TokenOwner>()
+        for group in groups where group.root.role == .agent {
+            let owner = TokenOwner(group.root)
+            alive.insert(owner)
+            guard TokenLedger.counted.contains(group.root.tool) else { continue }
+            claims.append(TokenLedger.Claim(
+                owner: owner,
+                startedAt: group.root.startedAt,
+                tool: group.root.tool,
+                project: group.root.workingDirectory.flatMap { $0 == "/" ? nil : $0 },
+                pids: Set(group.all.map(\.pid)),
+                source: sessionActivities.source(for: group.root.pid)
+            ))
+        }
+        tokenLedger.refresh(claims, alive: alive, now: now)
     }
 
     private func makeProcess(
@@ -360,6 +394,21 @@ final class AgentInventory {
     func sessionContext(for group: AgentGroup) -> ContextUse? {
         sessionActivities.context(for: group.root.pid)
     }
+
+    /// What this agent has spent since it started, subagents included. Nil
+    /// for a tool whose logs record no spend, and until the first count.
+    func tokens(for group: AgentGroup) -> TokenSnapshot.Usage? {
+        tokenLedger?.snapshot().agents[TokenOwner(group.root)]
+    }
+
+    /// Everything spent in one working directory, by every agent Corral has
+    /// seen there.
+    func projectTokens(at path: String) -> TokenSnapshot.Usage? {
+        tokenLedger?.snapshot().projects[path]
+    }
+
+    /// Writes the ledger now. For quitting.
+    func flushTokens() { tokenLedger?.flush() }
 
     /// What the account behind a tool has left, as of the last time that tool
     /// wrote it down. Never a live reading — see `ToolUsage.observedAt`.

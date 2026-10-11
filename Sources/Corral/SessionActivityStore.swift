@@ -18,6 +18,7 @@ final class SessionActivityStore {
     private let ttl: TimeInterval
     private var current: [pid_t: SessionActivity] = [:]
     private var contexts: [pid_t: ContextUse] = [:]
+    private var sources: [pid_t: String] = [:]
     private var computedAt: Date = .distantPast
 
     init(
@@ -57,6 +58,7 @@ final class SessionActivityStore {
         var claimed = Set<String>()
         var next: [pid_t: SessionActivity] = [:]
         var nextContexts: [pid_t: ContextUse] = [:]
+        var nextSources: [pid_t: String] = [:]
 
         // Most recently active first. When two agents in a project both fit a
         // log, the one that has just been typing at is the better guess for the
@@ -90,10 +92,12 @@ final class SessionActivityStore {
             claimed.insert(reading.source)
             next[group.root.pid] = reading.activity
             nextContexts[group.root.pid] = reading.context
+            nextSources[group.root.pid] = reading.source
         }
 
         current = next
         contexts = nextContexts
+        sources = nextSources
     }
 
     func activity(for pid: pid_t) -> SessionActivity? { current[pid] }
@@ -104,4 +108,9 @@ final class SessionActivityStore {
     /// be told apart from its neighbour has no context either — the alternative
     /// is putting a confident percentage against the wrong conversation.
     func context(for pid: pid_t) -> ContextUse? { contexts[pid] }
+
+    /// The log this agent was matched to — the session `TokenLedger` counts.
+    /// Under the same claim as everything else here, so a log is never handed
+    /// to two agents in one pass.
+    func source(for pid: pid_t) -> String? { sources[pid] }
 }

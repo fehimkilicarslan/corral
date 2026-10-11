@@ -217,6 +217,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
+    /// The token ledger saves on a timer, and quitting is the one moment the
+    /// next tick will never come.
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppState.shared.agents.flushTokens() }
+    }
+
     /// Closing the window puts Corral in the background rather than quitting.
     /// A monitor you have to keep a window open for is not a monitor; the menu
     /// bar item stays, and Quit is on its menu.

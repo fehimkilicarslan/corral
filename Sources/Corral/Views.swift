@@ -674,6 +674,7 @@ private struct AgentRow: View {
             Spacer(minLength: 8)
 
             contextMetric
+            tokenMetric
             metric(group.totalResidentBytes.byteString, "memory")
             metric(group.root.uptime.durationString, "up")
             stateBadge
@@ -754,6 +755,16 @@ private struct AgentRow: View {
             }
             .frame(minWidth: 52, alignment: .trailing)
             .help(contextDetail(use))
+        }
+    }
+
+    /// What this agent has spent since it started, with its hour-by-hour
+    /// history on hover — see `TokenMetric`. Absent for a tool whose logs
+    /// record no spend, and until the first count lands.
+    @ViewBuilder
+    private var tokenMetric: some View {
+        if let usage = model.tokens(for: group), !usage.total.isEmpty {
+            TokenMetric(model: model, group: group, usage: usage)
         }
     }
 
@@ -875,6 +886,14 @@ private struct DetailPanel: View {
                 field("Parent", "\(group.root.ppid)")
                 if let tty = group.root.tty { field("Terminal", tty) }
                 field("CPU time", group.root.cpuSeconds.cpuTimeString)
+                // Its counterpart from the agent's own logs: kept the same way,
+                // a running total since the process started.
+                if let usage = model.tokens(for: group), !usage.total.isEmpty {
+                    field(
+                        usage.total.isCredits ? "Credits" : "Tokens",
+                        TokenFormat.compact(usage.total)
+                    )
+                }
                 field("Started", group.root.startedAt.formatted(date: .abbreviated, time: .shortened))
             }
 

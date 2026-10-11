@@ -60,6 +60,29 @@ enum KiroSessions {
         return ClaudeSessionActivityReader.timestamp(String(trimmed))
     }
 
+    /// The session files whose lock names one of `pids`.
+    ///
+    /// A lock written before the agent existed cannot be this agent's, however
+    /// its pid reads: pids are recycled, and a session that ended without
+    /// removing its lock would otherwise attach itself to whatever process
+    /// inherited the number.
+    static func sessions(
+        lockedBy pids: Set<pid_t>,
+        since startedAt: Date,
+        under root: URL = defaultRoot
+    ) -> [URL] {
+        guard !pids.isEmpty else { return [] }
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
+        return names.filter { $0.hasSuffix(".lock") }.compactMap { name -> URL? in
+            let url = root.appendingPathComponent(name)
+            guard let lock = lock(at: url), pids.contains(lock.pid) else { return nil }
+            if let started = lock.startedAt, started < startedAt.addingTimeInterval(-1) {
+                return nil
+            }
+            return url.deletingPathExtension().appendingPathExtension("json")
+        }
+    }
+
     /// The session files under a root, newest first.
     static func sessionFiles(under root: URL, limit: Int = 12) -> [URL] {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
@@ -217,27 +240,11 @@ struct KiroSessionActivityReader: SessionActivityReader {
         return nil
     }
 
-    /// Sessions whose lock names a pid in the group.
-    ///
-    /// A lock written before the agent existed cannot be this agent's, however
-    /// its pid reads: pids are recycled, and a session that ended without
-    /// removing its lock would otherwise attach itself to whatever process
-    /// inherited the number.
+    /// Sessions whose lock names a pid in the group, not yet spoken for.
     private func lockedSessions(for lookup: SessionLookup) -> [KiroSessionFile] {
-        guard !lookup.pids.isEmpty else { return [] }
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
-        return names.filter { $0.hasSuffix(".lock") }.compactMap { name -> KiroSessionFile? in
-            let url = root.appendingPathComponent(name)
-            guard let lock = KiroSessions.lock(at: url), lookup.pids.contains(lock.pid) else {
-                return nil
-            }
-            if let started = lock.startedAt, started < lookup.startedAt.addingTimeInterval(-1) {
-                return nil
-            }
-            let json = url.deletingPathExtension().appendingPathExtension("json")
-            guard !lookup.claimed.contains(json.path) else { return nil }
-            return KiroSessionFile.read(json)
-        }
+        KiroSessions.sessions(lockedBy: lookup.pids, since: lookup.startedAt, under: root)
+            .filter { !lookup.claimed.contains($0.path) }
+            .compactMap(KiroSessionFile.read)
     }
 
     private func reading(of session: KiroSessionFile) -> SessionActivityReading? {

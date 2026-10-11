@@ -200,10 +200,12 @@ struct TrendGraph: View {
         let age: TimeInterval
     }
 
-    /// One slot per slice of `range`, oldest first; nil where nothing was
-    /// recorded. Built by `TrendBuffer.columns(_:now:)`.
+    /// One slot per slice, oldest first; nil where nothing was recorded.
+    /// Built by `TrendBuffer.columns(_:now:)` for the header.
     let columns: [Double?]
-    let range: TrendRange
+    /// How much time one column covers, so a probe can say how far back it
+    /// sits. The header's ranges set it; the token history uses an hour.
+    let sliceSeconds: TimeInterval
     var color: Color = Theme.trend
     /// Forces the y-axis to start at zero. Right for counts, where a floor of
     /// zero is meaningful; wrong for memory, where every agent holds a hundred
@@ -214,6 +216,33 @@ struct TrendGraph: View {
     var onProbe: ((Probe?) -> Void)?
 
     @State private var hovered: Int?
+
+    init(
+        columns: [Double?],
+        range: TrendRange,
+        color: Color = Theme.trend,
+        zeroBased: Bool = false,
+        onProbe: ((Probe?) -> Void)? = nil
+    ) {
+        self.init(
+            columns: columns, sliceSeconds: range.sliceSeconds,
+            color: color, zeroBased: zeroBased, onProbe: onProbe
+        )
+    }
+
+    init(
+        columns: [Double?],
+        sliceSeconds: TimeInterval,
+        color: Color = Theme.trend,
+        zeroBased: Bool = false,
+        onProbe: ((Probe?) -> Void)? = nil
+    ) {
+        self.columns = columns
+        self.sliceSeconds = sliceSeconds
+        self.color = color
+        self.zeroBased = zeroBased
+        self.onProbe = onProbe
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -250,7 +279,7 @@ struct TrendGraph: View {
         }
         onProbe?(Probe(
             value: value,
-            age: Double(columns.count - 1 - index) * range.sliceSeconds
+            age: Double(columns.count - 1 - index) * sliceSeconds
         ))
     }
 
