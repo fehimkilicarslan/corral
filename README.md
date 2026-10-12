@@ -292,12 +292,34 @@ each tool writes turn by turn.
   and project paths, nothing that was said — for 180 days after the agent ends.
 
 The figure is the whole total, cache reads included, because that is what the
-model went through and cache reads are most of what a long session costs. The
-popover splits it into output, input, cache writes and cache reads, so it is
-plain what kind of work it was. Kiro is counted in credits, which is what it
-records. Cursor writes no running total anywhere, Antigravity's conversations
-are encrypted and Windsurf writes nothing readable, so their rows have no
-figure rather than a zero.
+model went through. The popover splits it into output, input, cache writes and
+cache reads, and says what the pile actually **cost**, in the one unit that
+compares with it: tokens read at full price. Cache reads cost a tenth of an
+input token or less, writes and output more, so on the session this was written
+against 5.05 billion tokens cost what 423 million read fresh would have — 8%,
+because nearly all of them were the model re-reading its own context.
+
+The 24-hour history draws that twice. First every token, faint, with the cost
+on top of it on the same scale, so the part that cost anything is the coloured
+part of each bar — in a long session, a sliver. Then the cost alone on a scale
+of its own, because the hour that read most and the hour that cost most are
+often not the same hour: the first request after a pause long enough for the
+cache to expire rewrites the whole context at up to twice the input price, and
+on this machine those hours ran at 99% and 196% of full price against a typical
+6–12%.
+
+The ratios come from each model's published list prices — Claude's and
+OpenAI's, standard tier — and they are ratios, not a bill: nobody on a
+subscription pays per token. Corral keeps the table, because it moves: cache
+reads are 0.05× on Opus 5.5 and 0.025× on Fable 5.1 where they were 0.1×, and
+OpenAI's output multiple runs from 5× to 8×. A model that is not in the table
+is counted and drawn but **not priced**, and the popover says how much of the
+total that is, rather than borrowing a price from the model's family.
+
+Kiro is counted in credits, which is what it records, and credits are already a
+cost. Cursor writes no running total anywhere, Antigravity's conversations are
+encrypted and Windsurf writes nothing readable, so their rows have no figure
+rather than a zero.
 
 ## What it costs to run
 

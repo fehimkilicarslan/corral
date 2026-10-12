@@ -214,6 +214,13 @@ struct TrendGraph: View {
     /// Fires as the pointer moves across the columns, and once with nil when it
     /// leaves.
     var onProbe: ((Probe?) -> Void)?
+    /// A second series drawn faint behind the bars, on the same scale. The
+    /// token history puts each hour's tokens here, behind what they cost, so
+    /// the share that cost anything is the coloured part of a grey bar.
+    var backdrop: [Double?]?
+    /// A column to mark as if pointed at, so two graphs over the same hours
+    /// can share one pointer.
+    var highlighted: Int?
 
     @State private var hovered: Int?
 
@@ -235,19 +242,25 @@ struct TrendGraph: View {
         sliceSeconds: TimeInterval,
         color: Color = Theme.trend,
         zeroBased: Bool = false,
+        backdrop: [Double?]? = nil,
+        highlighted: Int? = nil,
         onProbe: ((Probe?) -> Void)? = nil
     ) {
         self.columns = columns
         self.sliceSeconds = sliceSeconds
         self.color = color
         self.zeroBased = zeroBased
+        self.backdrop = backdrop
+        self.highlighted = highlighted
         self.onProbe = onProbe
     }
 
     var body: some View {
         GeometryReader { geometry in
             Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-                guard columns.contains(where: { $0 != nil }) else { return }
+                let anything = columns.contains { $0 != nil }
+                    || (backdrop ?? []).contains { $0 != nil }
+                guard anything else { return }
                 draw(grid: context, size: size)
                 draw(bars: context, size: size)
             }
@@ -305,8 +318,12 @@ struct TrendGraph: View {
 
     private func draw(bars context: GraphicsContext, size: CGSize) {
         let values = columns.compactMap { $0 }
-        let top = values.max() ?? 0
-        let bottom = zeroBased ? 0 : (values.min() ?? 0)
+        let behind = (backdrop ?? []).compactMap { $0 }
+        // One scale for both series, or the coloured part of a bar would
+        // stop meaning a part of it. A backdrop is a count, so it starts at
+        // zero whatever `zeroBased` says.
+        let top = max(values.max() ?? 0, behind.max() ?? 0)
+        let bottom = zeroBased || backdrop != nil ? 0 : (values.min() ?? 0)
         let range = top - bottom
         let flat = range < .ulpOfOne
 
@@ -314,27 +331,39 @@ struct TrendGraph: View {
         let barWidth = max(1, slot - 1)
         // The baseline owns the bottom half-pixel; bars sit on it.
         let plotHeight = size.height - 1
+        let marked = hovered ?? highlighted
+
+        func height(of value: Double) -> CGFloat {
+            let normalized = flat ? 0.5 : (value - bottom) / range
+            // A minimum of one pixel: a genuine zero still leaves a tick, so an
+            // empty slot and a zero one do not look the same.
+            return max(1, CGFloat(normalized) * plotHeight)
+        }
 
         for (index, value) in columns.enumerated() {
             let x = CGFloat(index) * slot
 
             // The crosshair is drawn over empty slots too, so the pointer never
             // seems to fall off the graph.
-            if index == hovered {
+            if index == marked {
                 context.fill(
                     Path(CGRect(x: x, y: 0, width: max(barWidth, 1.5), height: size.height)),
                     with: .color(Color.primary.opacity(0.10))
                 )
             }
 
-            guard let value else { continue }
-            let normalized = flat ? 0.5 : (value - bottom) / range
-            // A minimum of one pixel: a genuine zero still leaves a tick, so an
-            // empty slot and a zero one do not look the same.
-            let height = max(1, CGFloat(normalized) * plotHeight)
-            let rect = CGRect(x: x, y: plotHeight - height, width: barWidth, height: height)
+            if let backdrop, backdrop.indices.contains(index), let under = backdrop[index] {
+                let tall = height(of: under)
+                context.fill(
+                    Path(CGRect(x: x, y: plotHeight - tall, width: barWidth, height: tall)),
+                    with: .color(Color.primary.opacity(0.16))
+                )
+            }
 
-            let emphasised = index == columns.count - 1 || index == hovered
+            guard let value else { continue }
+            let tall = height(of: value)
+            let rect = CGRect(x: x, y: plotHeight - tall, width: barWidth, height: tall)
+            let emphasised = index == columns.count - 1 || index == marked
             context.fill(Path(rect), with: .color(color.opacity(emphasised ? 1.0 : 0.55)))
         }
     }

@@ -31,6 +31,13 @@ enum TokenFormat {
         count.isCredits ? "credits" : "tokens"
     }
 
+    /// A share as a whole percentage — except that something which is there
+    /// never reads as 0%: six million tokens of output is not nothing,
+    /// whatever share of five billion it rounds to.
+    static func percent(_ share: Double) -> String {
+        share > 0 && share < 0.005 ? "<1%" : String(format: "%.0f%%", (share * 100).rounded())
+    }
+
     static func exact(_ value: Int) -> String {
         grouping.string(from: NSNumber(value: value)) ?? "\(value)"
     }
@@ -145,7 +152,7 @@ struct TokenPopover: View {
             header
 
             if let usage {
-                TokenTotals(usage: usage)
+                TokenTotals(usage: usage, tint: accent)
                 TokenHistory(title: "THIS AGENT", usage: usage, now: now, tint: accent)
             } else {
                 Text("Nothing counted yet.")
@@ -247,8 +254,10 @@ struct TokenPopover: View {
         let cache = (usage?.total.cacheRead ?? 0) > 0
             ? " Cache reads are context the model had already seen."
             : ""
-        return source + cache + " Counted since the agent started, and kept while "
-            + "Corral runs in the menu bar."
+        let cost = (usage?.total.fullPrice ?? 0) > 0
+            ? " Full price is the same tokens read fresh; from list-price ratios, not a bill."
+            : ""
+        return source + cache + cost + " Kept since the agent started."
     }
 
     static func moment(_ date: Date) -> String {
@@ -261,6 +270,7 @@ struct TokenPopover: View {
 /// The total, and what it was made of.
 private struct TokenTotals: View {
     let usage: TokenSnapshot.Usage
+    var tint: Color = Theme.trend
 
     var body: some View {
         let total = usage.total
@@ -278,6 +288,23 @@ private struct TokenTotals: View {
                         .font(.system(size: 9.5, design: .monospaced))
                         .foregroundStyle(Theme.faint)
                         .textSelection(.enabled)
+                }
+            }
+
+            // What the pile actually cost, in the only unit that compares
+            // with it: tokens read at full price.
+            if let share = total.costShare {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Costs what \(TokenFormat.compact(Int(total.fullPrice.rounded()))) tokens "
+                        + "would at full price — \(TokenFormat.percent(share))")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(tint)
+                    if total.unpriced > 0 {
+                        Text("\(TokenFormat.compact(total.unpriced)) from models Corral has no "
+                            + "price for are left out of that.")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(Theme.faint)
+                    }
                 }
             }
 
@@ -320,9 +347,7 @@ private struct TokenTotals: View {
                 .font(.system(size: 10.5, weight: .medium, design: .rounded))
                 .monospacedDigit()
                 .frame(width: 48, alignment: .trailing)
-            // Six million tokens of output is not nothing, whatever share of
-            // five billion it rounds to.
-            Text(share > 0 && share < 0.005 ? "<1%" : String(format: "%.0f%%", (share * 100).rounded()))
+            Text(TokenFormat.percent(share))
                 .font(.system(size: 9.5, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(Theme.faint)
@@ -337,6 +362,14 @@ private struct TokenTotals: View {
 /// docked above it — at a coarser grain. An hour before the agent started is
 /// an empty slot; an hour it spent waiting is a zero, drawn as a tick, because
 /// those are different facts.
+///
+/// Where the tokens can be priced it is two graphs over the same hours. The
+/// first is every token, faint, with what they cost drawn over it on the same
+/// scale — so the share that cost anything is the coloured part of the bar,
+/// and in a long session it is a sliver. A sliver says *how little*, but not
+/// *when*: the hour that cost most and the hour that read most are often not
+/// the same hour. So the second graph is the cost alone, on a scale of its
+/// own. One probe serves both.
 private struct TokenHistory: View {
     let title: String
     let usage: TokenSnapshot.Usage
@@ -350,37 +383,47 @@ private struct TokenHistory: View {
     var body: some View {
         let hours = TokenHours.recent(Self.span, endingAt: now)
         let first = TokenHours.start(of: usage.since)
+        let counts: [TokenCount?] = hours.map { $0 >= first ? (usage.hours[$0] ?? TokenCount()) : nil }
         let credits = usage.total.isCredits
-        let columns: [Double?] = hours.map { hour in
-            guard hour >= first else { return nil }
-            let count = usage.hours[hour] ?? TokenCount()
-            return credits ? count.credits : Double(count.total)
-        }
-        let recent = usage.hours.total(from: hours.first ?? 0)
+        // A history with no price in it — Kiro's, or one kept before costs
+        // were counted — is drawn as it always was.
+        let priced = !credits && usage.total.fullPrice > 0
+        let tokens = counts.map { $0.map { Double($0.total) } }
+        let costs = counts.map { $0.map(\.fullPrice) }
+        let marked = Self.index(of: probe, among: hours)
+        let window = usage.hours.total(from: hours.first ?? 0)
 
         VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Text(title)
-                    .font(.system(size: 8, weight: .semibold))
-                    .tracking(0.7)
-                    .foregroundStyle(tint)
-                Text("24h")
-                    .font(.system(size: 8, weight: .semibold))
-                    .tracking(0.5)
-                    .foregroundStyle(Theme.faint)
-                Spacer(minLength: 4)
-                Text(reading(hours, credits: credits) ?? "\(TokenFormat.compact(recent)) in 24h")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(probe == nil ? Theme.subtle : tint)
-            }
+            heading(title, span: "24h", reading: tokenReading(
+                marked, hours: hours, counts: counts, window: window, credits: credits
+            ))
             TrendGraph(
-                columns: columns,
+                columns: credits ? counts.map { $0.map(\.credits) } : (priced ? costs : tokens),
                 sliceSeconds: TokenHours.length,
                 color: tint,
                 zeroBased: true,
+                backdrop: priced ? tokens : nil,
+                highlighted: marked,
                 onProbe: { probe = $0 }
             )
             .frame(height: 38)
+
+            if priced {
+                heading("COST", span: nil, reading: costReading(
+                    marked, hours: hours, counts: counts, window: window
+                ))
+                .padding(.top, 4)
+                TrendGraph(
+                    columns: costs,
+                    sliceSeconds: TokenHours.length,
+                    color: tint,
+                    zeroBased: true,
+                    highlighted: marked,
+                    onProbe: { probe = $0 }
+                )
+                .frame(height: 24)
+            }
+
             HStack {
                 Text(Self.clock(hours.first))
                 Spacer()
@@ -388,6 +431,8 @@ private struct TokenHistory: View {
             }
             .font(.system(size: 8.5))
             .foregroundStyle(Theme.faint)
+
+            if priced { legend }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -401,16 +446,77 @@ private struct TokenHistory: View {
         )
     }
 
-    /// The hour under the pointer and what it held.
-    private func reading(_ hours: [Int], credits: Bool) -> String? {
+    private func heading(_ title: String, span: String?, reading: String) -> some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 8, weight: .semibold))
+                .tracking(0.7)
+                .foregroundStyle(tint)
+            if let span {
+                Text(span)
+                    .font(.system(size: 8, weight: .semibold))
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.faint)
+            }
+            Spacer(minLength: 4)
+            Text(reading)
+                .font(.system(size: 9, weight: .medium, design: .monospaced))
+                .foregroundStyle(probe == nil ? Theme.subtle : tint)
+                .lineLimit(1)
+        }
+    }
+
+    private var legend: some View {
+        HStack(spacing: 12) {
+            swatch(Color.primary.opacity(0.16), "tokens")
+            swatch(tint.opacity(0.8), "cost, as tokens at full price")
+        }
+        .font(.system(size: 8.5))
+        .foregroundStyle(Theme.faint)
+        .padding(.top, 2)
+    }
+
+    private func swatch(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 1).fill(color).frame(width: 7, height: 7)
+            Text(label)
+        }
+    }
+
+    /// The hour under the pointer, or the whole window when there is none.
+    private func tokenReading(
+        _ marked: Int?, hours: [Int], counts: [TokenCount?], window: TokenCount, credits: Bool
+    ) -> String {
+        if let marked, let count = counts[marked] {
+            let when = Self.when(marked, hours)
+            if credits { return "\(when) · \(ModelUse.compact(credits: count.credits)) credits" }
+            let share = count.costShare.map { " · \(TokenFormat.percent($0)) of full price" } ?? ""
+            return "\(when) · \(TokenFormat.compact(count.total))" + share
+        }
+        if credits { return "\(ModelUse.compact(credits: window.credits)) credits in 24h" }
+        let share = window.costShare.map { " · \(TokenFormat.percent($0)) of full price" } ?? ""
+        return "\(TokenFormat.compact(window.total)) in 24h" + share
+    }
+
+    private func costReading(
+        _ marked: Int?, hours: [Int], counts: [TokenCount?], window: TokenCount
+    ) -> String {
+        if let marked, let count = counts[marked] {
+            return "\(Self.when(marked, hours)) · "
+                + "\(TokenFormat.compact(Int(count.fullPrice.rounded()))) at full price"
+        }
+        return "\(TokenFormat.compact(Int(window.fullPrice.rounded()))) at full price"
+    }
+
+    private static func index(of probe: TrendGraph.Probe?, among hours: [Int]) -> Int? {
         guard let probe else { return nil }
         let index = hours.count - 1 - Int((probe.age / TokenHours.length).rounded())
-        guard hours.indices.contains(index) else { return nil }
-        let start = Self.clock(hours[index])
-        let value = credits
-            ? "\(ModelUse.compact(credits: probe.value)) credits"
-            : TokenFormat.compact(Int(probe.value))
-        return index == hours.count - 1 ? "\(value) this hour" : "\(start) · \(value)"
+        return hours.indices.contains(index) ? index : nil
+    }
+
+    /// The rightmost column is the hour still running.
+    private static func when(_ index: Int, _ hours: [Int]) -> String {
+        index == hours.count - 1 ? "this hour" : clock(hours[index])
     }
 
     private static func clock(_ hour: Int?) -> String {

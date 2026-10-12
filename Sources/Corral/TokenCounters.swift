@@ -22,6 +22,14 @@ struct TokenCount: Equatable {
     /// What Kiro charged. It bills turns in credits and writes its token
     /// fields as zero, so for Kiro this is the only figure there is.
     var credits = 0.0
+    /// What the tokens cost, counted in fresh-input tokens of the model that
+    /// spent them — see `TokenPrice`. The figure that says how much of a pile
+    /// of tokens cost anything: cache reads add a tenth of themselves or
+    /// less, output five to eight times itself.
+    var fullPrice = 0.0
+    /// Tokens from turns whose model has no price in `TokenPrice`, and so no
+    /// share of `fullPrice`. Counted, never guessed at.
+    var unpriced = 0
 
     var total: Int { input + cacheWrite + cacheRead + output }
     var isEmpty: Bool { total == 0 && credits == 0 }
@@ -29,6 +37,14 @@ struct TokenCount: Equatable {
     /// True when credits are the only unit the source gave, which is how the
     /// figure has to be shown.
     var isCredits: Bool { total == 0 && credits > 0 }
+
+    /// What these tokens cost as a share of what they would have cost read
+    /// fresh. Nil when none of them could be priced.
+    var costShare: Double? {
+        let priced = total - unpriced
+        guard priced > 0, fullPrice > 0 else { return nil }
+        return fullPrice / Double(priced)
+    }
 
     /// A running total that went backwards, which a log that only grows
     /// should never produce.
@@ -42,7 +58,9 @@ struct TokenCount: Equatable {
             cacheWrite: a.cacheWrite + b.cacheWrite,
             cacheRead: a.cacheRead + b.cacheRead,
             output: a.output + b.output,
-            credits: a.credits + b.credits
+            credits: a.credits + b.credits,
+            fullPrice: a.fullPrice + b.fullPrice,
+            unpriced: a.unpriced + b.unpriced
         )
     }
 
@@ -52,7 +70,9 @@ struct TokenCount: Equatable {
             cacheWrite: a.cacheWrite - b.cacheWrite,
             cacheRead: a.cacheRead - b.cacheRead,
             output: a.output - b.output,
-            credits: a.credits - b.credits
+            credits: a.credits - b.credits,
+            fullPrice: a.fullPrice - b.fullPrice,
+            unpriced: a.unpriced - b.unpriced
         )
     }
 
@@ -63,7 +83,9 @@ struct TokenCount: Equatable {
 extension TokenCount: Codable {
     /// Written as a bare array. The ledger keeps one of these per hour per
     /// session, and a key name on every figure would make the file mostly key
-    /// names. Credits trail, and only when there are any.
+    /// names. The four token figures always; then credits, the full-price
+    /// figure and the unpriced count, as far as any of them is non-zero. A
+    /// reader that knows fewer fields stops early and loses nothing it knew.
     init(from decoder: Decoder) throws {
         var row = try decoder.unkeyedContainer()
         input = try row.decode(Int.self)
@@ -71,6 +93,13 @@ extension TokenCount: Codable {
         cacheRead = try row.decode(Int.self)
         output = try row.decode(Int.self)
         credits = row.isAtEnd ? 0 : try row.decode(Double.self)
+        // A row that ends before the price was written before prices were
+        // counted at all. Its tokens are unpriced — not priced at nothing,
+        // which would read as free and drag every share down with it.
+        let pricedWhenWritten = !row.isAtEnd
+        fullPrice = row.isAtEnd ? 0 : try row.decode(Double.self)
+        unpriced = row.isAtEnd ? 0 : try row.decode(Int.self)
+        if !pricedWhenWritten { unpriced = total }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -79,7 +108,15 @@ extension TokenCount: Codable {
         try row.encode(cacheWrite)
         try row.encode(cacheRead)
         try row.encode(output)
-        if credits != 0 { try row.encode(credits) }
+        // Whole tokens: a fraction of one is precision nobody can read. But a
+        // price never rounds down to nothing, or the row would read back as
+        // one written before prices were counted.
+        let price = fullPrice > 0 ? max(1, fullPrice.rounded()) : 0
+        let trailing: [Double] = [credits, price, Double(unpriced)]
+        guard let last = trailing.lastIndex(where: { $0 != 0 }) else { return }
+        try row.encode(credits)
+        if last >= 1 { try row.encode(price) }
+        if last >= 2 { try row.encode(unpriced) }
     }
 }
 
@@ -282,14 +319,36 @@ enum ClaudeTokens {
               let at = ClaudeSessionActivityReader.timestamp(record["timestamp"])
         else { return nil }
 
-        let count = TokenCount(
+        var count = TokenCount(
             input: JSONNumber.int(usage["input_tokens"]) ?? 0,
             cacheWrite: JSONNumber.int(usage["cache_creation_input_tokens"]) ?? 0,
             cacheRead: JSONNumber.int(usage["cache_read_input_tokens"]) ?? 0,
             output: JSONNumber.int(usage["output_tokens"]) ?? 0
         )
         guard !count.isEmpty else { return nil }
+        price(&count, model: message["model"] as? String, usage: usage)
         return Turn(id: id, at: at, count: count)
+    }
+
+    /// Prices a turn by the model that took it and how long its cache writes
+    /// were kept. Claude Code keeps the main conversation an hour and
+    /// subagents five minutes, and the hour costs 2× input where five minutes
+    /// costs 1.25×, so the split is read rather than assumed. A write with no
+    /// breakdown — older logs — is the five-minute default.
+    static func price(_ count: inout TokenCount, model: String?, usage: [String: Any]) {
+        guard let model, let price = TokenPrice.of(model) else {
+            count.unpriced = count.total
+            return
+        }
+        let split = usage["cache_creation"] as? [String: Any]
+        let hour = min(count.cacheWrite, JSONNumber.int(split?["ephemeral_1h_input_tokens"]) ?? 0)
+        count.fullPrice = price.fullPrice(
+            input: count.input,
+            write5m: count.cacheWrite - hour,
+            write1h: hour,
+            cacheRead: count.cacheRead,
+            output: count.output
+        )
     }
 }
 
@@ -420,6 +479,33 @@ enum CodexTokens {
     }
 
     private static let marker = Data("\"token_count\"".utf8)
+    private static let contextMarker = Data("\"turn_context\"".utf8)
+
+    /// The model a turn ran on. Codex writes it per turn, in `turn_context`,
+    /// and `/model` changes it mid-session.
+    static func model(_ line: Data) -> String? {
+        guard line.range(of: contextMarker) != nil,
+              let record = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              record["type"] as? String == "turn_context",
+              let payload = record["payload"] as? [String: Any],
+              let model = payload["model"] as? String, !model.isEmpty
+        else { return nil }
+        return model
+    }
+
+    /// One turn's figures, priced by the model it ran on.
+    static func priced(_ count: TokenCount, model: String?) -> TokenCount {
+        var priced = count
+        guard let model, let price = TokenPrice.of(model) else {
+            priced.unpriced = count.total
+            return priced
+        }
+        priced.fullPrice = price.fullPrice(
+            input: count.input, write5m: count.cacheWrite, write1h: 0,
+            cacheRead: count.cacheRead, output: count.output
+        )
+        return priced
+    }
 
     static func reading(_ line: Data) -> Reading? {
         guard line.range(of: marker) != nil,
@@ -469,6 +555,9 @@ final class CodexTokenCounter: TokenCounter {
     /// before the agent started: that is the baseline its first turn is
     /// measured from.
     private var previous: TokenCount?
+    /// The model named by the latest `turn_context`, which the turns after
+    /// it ran on.
+    private var model: String?
     private var turns: [(at: Date, count: TokenCount)] = []
 
     private(set) var hours = HourlyTokens()
@@ -488,6 +577,7 @@ final class CodexTokenCounter: TokenCounter {
             // Rewritten rather than appended to. Counted again from the top.
             cursor = 0
             previous = nil
+            model = nil
             turns = []
             hours = HourlyTokens()
         }
@@ -497,7 +587,11 @@ final class CodexTokenCounter: TokenCounter {
         cursor = appended.next
         var changed = false
         for line in appended.lines {
-            if let reading = CodexTokens.reading(line), absorb(reading) { changed = true }
+            if let named = CodexTokens.model(line) {
+                model = named
+            } else if let reading = CodexTokens.reading(line), absorb(reading) {
+                changed = true
+            }
         }
         return changed
     }
@@ -516,8 +610,9 @@ final class CodexTokenCounter: TokenCounter {
         }
         previous = reading.total
         guard reading.at >= since, !delta.isEmpty else { return false }
-        turns.append((reading.at, delta))
-        hours.add(delta, at: reading.at)
+        let turn = CodexTokens.priced(delta, model: model)
+        turns.append((reading.at, turn))
+        hours.add(turn, at: reading.at)
         return true
     }
 
@@ -567,10 +662,13 @@ final class KiroTokenCounter: TokenCounter {
         for turn in file.turns where turn.at >= since {
             let key = "\(turn.at.timeIntervalSince1970)|\(turn.model)"
             guard seen[key] == nil else { continue }
+            // Credits are the price. Any tokens Kiro ever writes alongside
+            // them are counted but not priced a second time.
             let count = TokenCount(
                 input: turn.inputTokens,
                 output: turn.outputTokens,
-                credits: turn.credits
+                credits: turn.credits,
+                unpriced: turn.inputTokens + turn.outputTokens
             )
             seen[key] = (turn.at, count)
             hours.add(count, at: turn.at)

@@ -85,6 +85,14 @@ private func kiroSession(id: String, cwd: String, turns: [(Date, Double)]) -> St
     ])
 }
 
+private extension TokenCount {
+    /// The four token figures and credits, without what they were priced at —
+    /// for the tests that are about counting, not pricing.
+    var tokensOnly: TokenCount {
+        TokenCount(input: input, cacheWrite: cacheWrite, cacheRead: cacheRead, output: output, credits: credits)
+    }
+}
+
 private extension XCTestCase {
     func temporaryFolder() throws -> URL {
         let folder = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -131,10 +139,10 @@ final class TokenCountTests: XCTestCase {
     }
 
     func testItIsWrittenAsABareArrayAndReadBack() throws {
-        let plain = TokenCount(input: 1, cacheWrite: 2, cacheRead: 3, output: 4)
-        let data = try JSONEncoder().encode(plain)
-        XCTAssertEqual(String(data: data, encoding: .utf8), "[1,2,3,4]")
-        XCTAssertEqual(try JSONDecoder().decode(TokenCount.self, from: data), plain)
+        let priced = TokenCount(input: 1, cacheWrite: 2, cacheRead: 3, output: 4, fullPrice: 27)
+        let data = try JSONEncoder().encode(priced)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "[1,2,3,4,0,27]")
+        XCTAssertEqual(try JSONDecoder().decode(TokenCount.self, from: data), priced)
 
         let billed = TokenCount(credits: 0.38)
         let back = try JSONDecoder().decode(TokenCount.self, from: JSONEncoder().encode(billed))
@@ -204,9 +212,9 @@ final class HourlyTokensTests: XCTestCase {
 
     func testHoursAreKeyedByTheirStartOnDisk() throws {
         let hour = TokenHours.start(of: at(0))
-        let hours = HourlyTokens(byHour: [hour: TokenCount(output: 9)])
+        let hours = HourlyTokens(byHour: [hour: TokenCount(output: 9, fullPrice: 45)])
         let data = try JSONEncoder().encode(hours)
-        XCTAssertEqual(String(data: data, encoding: .utf8), "{\"\(hour)\":[0,0,0,9]}")
+        XCTAssertEqual(String(data: data, encoding: .utf8), "{\"\(hour)\":[0,0,0,9,0,45]}")
         XCTAssertEqual(try JSONDecoder().decode(HourlyTokens.self, from: data), hours)
     }
 }
@@ -233,7 +241,7 @@ final class ClaudeTokenCounterTests: XCTestCase {
         let counter = ClaudeTokenCounter(transcript: transcript, since: at(0))
         XCTAssertTrue(counter.advance())
         let total = counter.hours.total
-        XCTAssertEqual(total, TokenCount(input: 3, cacheWrite: 100, cacheRead: 11_000, output: 407))
+        XCTAssertEqual(total.tokensOnly, TokenCount(input: 3, cacheWrite: 100, cacheRead: 11_000, output: 407))
         XCTAssertTrue(counter.found)
         XCTAssertEqual(counter.subagents, 0)
         XCTAssertFalse(counter.advance(), "nothing new, nothing moved")
@@ -359,7 +367,7 @@ final class CodexTokenCounterTests: XCTestCase {
         XCTAssertTrue(counter.advance())
         // 1,000 in of which 800 cached, then 500 of which 400: uncached 300,
         // cached 1,200, output 25. The turn before the agent started is out.
-        XCTAssertEqual(counter.hours.total, TokenCount(input: 300, cacheRead: 1_200, output: 25))
+        XCTAssertEqual(counter.hours.total.tokensOnly, TokenCount(input: 300, cacheRead: 1_200, output: 25))
     }
 
     func testAppendedEventsContinueFromTheLastTotal() throws {
@@ -437,7 +445,7 @@ final class TokenLedgerTests: XCTestCase {
 
         let agent = claim(10, started: at(0), file: file)
         let snapshot = ledger.pass([agent], alive: [agent.owner], now: at(30))
-        XCTAssertEqual(snapshot.agents[agent.owner]?.total, TokenCount(cacheRead: 1_000, output: 300))
+        XCTAssertEqual(snapshot.agents[agent.owner]?.total.tokensOnly, TokenCount(cacheRead: 1_000, output: 300))
         XCTAssertEqual(snapshot.agents[agent.owner]?.sessions, 1)
         XCTAssertEqual(snapshot.projects["/proj"]?.total.output, 300)
     }
@@ -652,5 +660,163 @@ final class TokenLedgerTests: XCTestCase {
         let snapshot = reread.pass([], alive: [], now: at(40))
         XCTAssertEqual(snapshot.projects["/a"]?.total.output, 10)
         XCTAssertEqual(snapshot.projects["/b"]?.total.output, 20)
+    }
+}
+
+// ─ What it cost ─────────────────────────────────────────────────────────────
+
+final class TokenPriceTests: XCTestCase {
+
+    func testClaudeRatiosFollowTheModel() throws {
+        let opus = try XCTUnwrap(TokenPrice.of("claude-opus-5-5"))
+        XCTAssertEqual(opus.cacheRead, 0.05)
+        XCTAssertEqual(opus.cacheWrite5m, 1.25)
+        XCTAssertEqual(opus.cacheWrite1h, 2)
+        XCTAssertEqual(opus.output, 5)
+        XCTAssertEqual(TokenPrice.of("claude-fable-5-1")?.cacheRead, 0.025)
+        XCTAssertEqual(TokenPrice.of("claude-sonnet-5-5")?.cacheRead, 0.1)
+        // A release date and a context marker change nothing about the price.
+        XCTAssertEqual(TokenPrice.of("claude-haiku-4-5-20251001")?.cacheRead, 0.1)
+        XCTAssertEqual(TokenPrice.of("claude-opus-5-5[1m]")?.cacheRead, 0.05)
+    }
+
+    func testOpenAIRatiosFollowTheModel() throws {
+        let terra = try XCTUnwrap(TokenPrice.of("gpt-5.6-terra"))
+        XCTAssertEqual(terra.cacheRead, 0.1)
+        XCTAssertEqual(terra.output, 6)
+        XCTAssertEqual(terra.cacheWrite5m, 1, "OpenAI does not charge for writing the cache")
+        XCTAssertEqual(TokenPrice.of("gpt-5.6-sol")?.output, 5)
+        XCTAssertEqual(TokenPrice.of("gpt-5.3-codex")?.output, 8)
+        XCTAssertEqual(TokenPrice.of("gpt-5.5-pro")?.cacheRead, 1, "no cached price: a cached token is a full one")
+    }
+
+    /// The newest models are the ones whose prices broke the pattern, so a
+    /// name the table does not know is not priced from its family.
+    func testAnUnknownModelIsUnpricedRatherThanGuessed() {
+        XCTAssertNil(TokenPrice.of("claude-opus-6"))
+        XCTAssertNil(TokenPrice.of("claude-opus-5-7"))
+        XCTAssertNil(TokenPrice.of("gpt-7"))
+        XCTAssertNil(TokenPrice.of("<synthetic>"))
+    }
+
+    func testFullPriceAddsEachPartAtItsMultiple() throws {
+        let opus = try XCTUnwrap(TokenPrice.of("claude-opus-5-5"))
+        // 10 + 100×1.25 + 50×2 + 1,000×0.05 + 20×5
+        XCTAssertEqual(opus.fullPrice(input: 10, write5m: 100, write1h: 50, cacheRead: 1_000, output: 20), 385)
+    }
+
+    func testTheCostShareLeavesTheUnpricedOut() {
+        let count = TokenCount(cacheRead: 1_000, output: 10, fullPrice: 150, unpriced: 0)
+        XCTAssertEqual(count.costShare ?? 0, 150.0 / 1_010, accuracy: 1e-9)
+        let partly = TokenCount(cacheRead: 2_000, output: 20, fullPrice: 150, unpriced: 1_010)
+        XCTAssertEqual(partly.costShare ?? 0, 150.0 / 1_010, accuracy: 1e-9)
+        XCTAssertNil(TokenCount(cacheRead: 5, unpriced: 5).costShare)
+    }
+
+    func testPercentagesNeverRoundSomethingToNothing() {
+        XCTAssertEqual(TokenFormat.percent(0.003), "<1%")
+        XCTAssertEqual(TokenFormat.percent(0.08), "8%")
+        XCTAssertEqual(TokenFormat.percent(1.96), "196%")
+        XCTAssertEqual(TokenFormat.percent(0), "0%")
+    }
+
+    func testThePriceTravelsInTheLedgerAndOldRowsStillRead() throws {
+        let priced = TokenCount(input: 1, cacheWrite: 2, cacheRead: 3, output: 4, fullPrice: 12.6)
+        let data = try JSONEncoder().encode(priced)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "[1,2,3,4,0,13]")
+        XCTAssertEqual(try JSONDecoder().decode(TokenCount.self, from: data).fullPrice, 13)
+
+        let unpriced = TokenCount(input: 1, cacheWrite: 2, cacheRead: 3, output: 4, unpriced: 10)
+        let back = try JSONDecoder().decode(TokenCount.self, from: JSONEncoder().encode(unpriced))
+        XCTAssertEqual(back.unpriced, 10)
+
+        // Rows written before prices were counted: unpriced, not free.
+        let old = try JSONDecoder().decode(TokenCount.self, from: Data("[1,2,3,4]".utf8))
+        XCTAssertEqual(old.fullPrice, 0)
+        XCTAssertEqual(old.unpriced, 10)
+        XCTAssertNil(old.costShare)
+        let credits = try JSONDecoder().decode(TokenCount.self, from: Data("[0,0,0,0,0.5]".utf8))
+        XCTAssertEqual(credits.credits, 0.5)
+        XCTAssertEqual(credits.unpriced, 0)
+
+        // A price too small to round to a token still reads back as priced.
+        let tiny = TokenCount(cacheRead: 3, fullPrice: 0.075)
+        let written = try JSONEncoder().encode(tiny)
+        XCTAssertEqual(String(data: written, encoding: .utf8), "[0,0,3,0,0,1]")
+        XCTAssertEqual(try JSONDecoder().decode(TokenCount.self, from: written).unpriced, 0)
+    }
+}
+
+final class TokenPricingCounterTests: XCTestCase {
+
+    private func line(_ model: String, split: [String: Int]?) -> Data {
+        var usage: [String: Any] = [
+            "input_tokens": 10, "cache_creation_input_tokens": 100,
+            "cache_read_input_tokens": 1_000, "output_tokens": 20,
+        ]
+        if let split { usage["cache_creation"] = split }
+        return Data(json([
+            "type": "assistant", "timestamp": iso(at(10)),
+            "message": ["id": "m1", "model": model, "content": [], "usage": usage],
+        ]).utf8)
+    }
+
+    /// The hour-long entry costs 2× and the five-minute one 1.25×; Claude
+    /// Code uses both, so the split in the record decides.
+    func testAClaudeTurnIsPricedByItsModelAndItsCacheLifetimes() throws {
+        let split = try XCTUnwrap(ClaudeTokens.turn(
+            line("claude-opus-5-5", split: ["ephemeral_5m_input_tokens": 60, "ephemeral_1h_input_tokens": 40])
+        ))
+        // 10 + 60×1.25 + 40×2 + 1,000×0.05 + 20×5
+        XCTAssertEqual(split.count.fullPrice, 315, accuracy: 1e-9)
+        XCTAssertEqual(split.count.unpriced, 0)
+
+        let older = try XCTUnwrap(ClaudeTokens.turn(line("claude-opus-5-5", split: nil)))
+        XCTAssertEqual(older.count.fullPrice, 285, accuracy: 1e-9, "no breakdown: the five-minute default")
+
+        let unknown = try XCTUnwrap(ClaudeTokens.turn(line("claude-opus-6", split: nil)))
+        XCTAssertEqual(unknown.count.fullPrice, 0)
+        XCTAssertEqual(unknown.count.unpriced, 1_130)
+    }
+
+    /// The finished copy of a message replaces the unfinished one in the
+    /// price as well as in the count.
+    func testARepeatedMessageIsPricedOnceAtItsLargest() throws {
+        let folder = try temporaryFolder()
+        let transcript = folder.appendingPathComponent("s1.jsonl")
+        try write([
+            json(["type": "assistant", "timestamp": iso(at(10)), "message": [
+                "id": "m1", "model": "claude-sonnet-5-5", "content": [],
+                "usage": ["input_tokens": 0, "cache_read_input_tokens": 1_000, "output_tokens": 4],
+            ]]),
+            json(["type": "assistant", "timestamp": iso(at(11)), "message": [
+                "id": "m1", "model": "claude-sonnet-5-5", "content": [],
+                "usage": ["input_tokens": 0, "cache_read_input_tokens": 1_000, "output_tokens": 40],
+            ]]),
+        ], to: transcript)
+        let counter = ClaudeTokenCounter(transcript: transcript, since: at(0))
+        _ = counter.advance()
+        // 1,000×0.1 + 40×5
+        XCTAssertEqual(counter.hours.total.fullPrice, 300, accuracy: 1e-9)
+    }
+
+    /// Codex names its model per turn, and `/model` changes it mid-session.
+    func testACodexTurnIsPricedByTheModelItRanOn() throws {
+        let folder = try temporaryFolder()
+        let rollout = folder.appendingPathComponent("rollout-1.jsonl")
+        try write([
+            json(["timestamp": iso(at(5)), "type": "turn_context", "payload": ["model": "gpt-5.6-terra"]]),
+            codex(at(10), total: (1_000, 800, 10), last: (1_000, 800, 10)),
+            json(["timestamp": iso(at(15)), "type": "turn_context", "payload": ["model": "gpt-5.6-sol"]]),
+            codex(at(20), total: (1_500, 1_200, 15), last: (500, 400, 5)),
+            json(["timestamp": iso(at(25)), "type": "turn_context", "payload": ["model": "gpt-9"]]),
+            codex(at(30), total: (1_600, 1_200, 16), last: (100, 0, 1)),
+        ], to: rollout)
+        let counter = CodexTokenCounter(rollout: rollout, since: at(0))
+        _ = counter.advance()
+        let total = counter.hours.total
+        // Terra: 200 + 800×0.1 + 10×6 = 340. Sol: 100 + 400×0.1 + 5×5 = 165.
+        XCTAssertEqual(total.fullPrice, 505, accuracy: 1e-9)
+        XCTAssertEqual(total.unpriced, 101, "the turn on a model with no price")
     }
 }
