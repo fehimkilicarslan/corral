@@ -322,10 +322,10 @@ struct TrendGraph: View {
         // One scale for both series, or the coloured part of a bar would
         // stop meaning a part of it. A backdrop is a count, so it starts at
         // zero whatever `zeroBased` says.
-        let top = max(values.max() ?? 0, behind.max() ?? 0)
-        let bottom = zeroBased || backdrop != nil ? 0 : (values.min() ?? 0)
-        let range = top - bottom
-        let flat = range < .ulpOfOne
+        let scale = TrendScale(
+            top: max(values.max() ?? 0, behind.max() ?? 0),
+            bottom: zeroBased || backdrop != nil ? 0 : (values.min() ?? 0)
+        )
 
         let slot = size.width / CGFloat(columns.count)
         let barWidth = max(1, slot - 1)
@@ -334,10 +334,9 @@ struct TrendGraph: View {
         let marked = hovered ?? highlighted
 
         func height(of value: Double) -> CGFloat {
-            let normalized = flat ? 0.5 : (value - bottom) / range
             // A minimum of one pixel: a genuine zero still leaves a tick, so an
             // empty slot and a zero one do not look the same.
-            return max(1, CGFloat(normalized) * plotHeight)
+            max(1, CGFloat(scale.fraction(of: value)) * plotHeight)
         }
 
         for (index, value) in columns.enumerated() {
@@ -366,5 +365,23 @@ struct TrendGraph: View {
             let emphasised = index == columns.count - 1 || index == marked
             context.fill(Path(rect), with: .color(color.opacity(emphasised ? 1.0 : 0.55)))
         }
+    }
+}
+
+/// Where a value sits between the bottom of a graph and its top, 0 to 1.
+///
+/// The awkward case is a series with nothing to scale against, every value
+/// the same. A steady 2.9 GB is a level, and sits on the midline rather than
+/// on the floor or the ceiling. A steady zero is nothing: drawn on the
+/// midline, a day in which an agent spent no tokens read as a day it spent
+/// some every hour.
+struct TrendScale {
+    let top: Double
+    let bottom: Double
+
+    func fraction(of value: Double) -> Double {
+        let range = top - bottom
+        guard range >= .ulpOfOne else { return top == 0 ? 0 : 0.5 }
+        return (value - bottom) / range
     }
 }
