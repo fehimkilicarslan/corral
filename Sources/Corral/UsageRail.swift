@@ -287,13 +287,13 @@ struct UsagePopoverView: View {
         switch usage.tool {
         case .claudeCode, .claudeDesktop:
             return "Claude Code keeps its limits off disk, but it will hand them to a "
-                + "status line. Turn it on under \u{201C}Report Usage to Corral\u{201D}."
+                + "status line. Turn it on in Settings (\u{2318},)."
         case .cursorAgent, .cursor:
             return "Cursor does not publish what your account has left, here or "
                 + "anywhere else on this Mac."
         case .kiroCLI, .kiroCrew, .kiro:
             return "Kiro keeps the balance on its servers. Corral can ask for it — "
-                + "turn on \u{201C}\(KiroAccountSetup.title)\u{201D} in the menu. What each "
+                + "turn on \u{201C}\(KiroAccountSetup.title)\u{201D} in Settings. What each "
                 + "turn cost is below."
         case .antigravity:
             return "Antigravity keeps its rate limits on Google's servers and its "

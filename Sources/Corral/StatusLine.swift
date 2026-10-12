@@ -118,7 +118,7 @@ enum StatusLine {
         if isatty(STDIN_FILENO) != 0 {
             FileHandle.standardError.write(Data("""
             Corral --statusline is run by Claude Code or Cursor, which hand it a
-            JSON object on stdin. Turn it on from Corral's menu: Report Usage to Corral.
+            JSON object on stdin. Turn it on in Corral's Settings (⌘,).
 
             """.utf8))
             return

@@ -171,123 +171,36 @@ final class StatusItemController {
             }
         }
 
+        // Three groups, in the order they are reached for: get to the
+        // agents, change how Corral behaves, and leave. Every setting lives in
+        // the Settings window — this menu used to carry four of them as
+        // submenus, under names that did not match the app menu's.
         menu.addItem(.separator())
-        let open = NSMenuItem(
-            title: "Open Corral",
-            action: #selector(MenuBuilder.openWindow),
-            keyEquivalent: ""
-        )
-        open.target = MenuBuilder.shared
-        menu.addItem(open)
+        menu.addItem(item("Open Corral", #selector(MenuBuilder.openWindow)))
+        menu.addItem(item("Show Usage Panel", #selector(MenuBuilder.showUsage)))
 
-        let usage = NSMenuItem(
-            title: "Show Usage",
-            action: #selector(MenuBuilder.showUsage),
-            keyEquivalent: ""
-        )
-        usage.target = MenuBuilder.shared
-        menu.addItem(usage)
-
-        let reporting = NSMenuItem(title: "Report Usage to Corral", action: nil, keyEquivalent: "")
-        let reportingMenu = NSMenu()
-        for agent in StatusLineSetup.Target.all {
-            let entry = NSMenuItem(
-                title: agent.name,
-                action: #selector(MenuBuilder.setUpUsage(_:)),
-                keyEquivalent: ""
-            )
-            entry.target = MenuBuilder.shared
-            entry.representedObject = agent.tool.rawValue
-            if case .installed = StatusLineSetup.state(of: agent) { entry.state = .on }
-            reportingMenu.addItem(entry)
-        }
-        reportingMenu.addItem(.separator())
-        let kiro = NSMenuItem(
-            title: KiroAccountSetup.title,
-            action: #selector(MenuBuilder.toggleKiroAccount),
-            keyEquivalent: ""
-        )
-        kiro.target = MenuBuilder.shared
-        kiro.state = KiroAccount.isEnabled ? .on : .off
-        kiro.toolTip = "The only thing in Corral that uses the network. Asks first."
-        reportingMenu.addItem(kiro)
-        reporting.submenu = reportingMenu
-        menu.addItem(reporting)
-
-        let placement = NSMenuItem(title: "Usage Panel", action: nil, keyEquivalent: "")
-        let placementMenu = NSMenu()
-        for option in PanelPlacement.allCases {
-            let entry = NSMenuItem(
-                title: option.label,
-                action: #selector(MenuBuilder.setPlacement(_:)),
-                keyEquivalent: ""
-            )
-            entry.target = MenuBuilder.shared
-            entry.representedObject = option.rawValue
-            entry.state = PanelSettings.shared.placement == option ? .on : .off
-            // Turning the panel off is only on offer while the menu bar item is
-            // there to turn it back on with.
-            entry.isEnabled = option != .off || PanelSettings.shared.showsMenuBarItem
-            placementMenu.addItem(entry)
-        }
-        placement.submenu = placementMenu
-        menu.addItem(placement)
-
-        let hideItem = NSMenuItem(
-            title: "Hide This Menu Bar Item",
-            action: #selector(MenuBuilder.hideMenuBarItem),
-            keyEquivalent: ""
-        )
-        hideItem.target = MenuBuilder.shared
-        // Offered only when there is another way back in. Turning off the last
-        // one leaves an app that is running and cannot be summoned.
-        hideItem.isEnabled = PanelSettings.shared.placement != .off
-        hideItem.toolTip = PanelSettings.shared.placement != .off
-            ? "The usage panel stays, so Corral is still reachable."
-            : "Turn on the usage panel first — otherwise there is no way back."
-        menu.addItem(hideItem)
-
-        let appearance = NSMenuItem(title: "Appearance", action: nil, keyEquivalent: "")
-        let appearanceMenu = NSMenu()
-        for mode in AppearanceMode.allCases {
-            let entry = NSMenuItem(
-                title: mode.label,
-                action: #selector(MenuBuilder.setAppearance(_:)),
-                keyEquivalent: ""
-            )
-            entry.target = MenuBuilder.shared
-            entry.representedObject = mode.rawValue
-            entry.state = AppearanceController.shared.mode == mode ? .on : .off
-            appearanceMenu.addItem(entry)
-        }
-        appearance.submenu = appearanceMenu
-        menu.addItem(appearance)
-
+        menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(MenuBuilder.openSettings), key: ","))
         // Corral is usable with its window closed, so "which build am I
         // running" has to be answerable from here too.
-        let about = NSMenuItem(
-            title: "About Corral",
-            action: #selector(MenuBuilder.showAbout),
-            keyEquivalent: ""
-        )
-        about.target = MenuBuilder.shared
-        menu.addItem(about)
-
-        let support = NSMenuItem(
-            title: "Report a Problem…",
-            action: #selector(MenuBuilder.reportProblem),
-            keyEquivalent: ""
-        )
-        support.target = MenuBuilder.shared
+        menu.addItem(item("About Corral", #selector(MenuBuilder.showAbout)))
+        let support = item("Report a Problem…", #selector(MenuBuilder.reportProblem))
         support.toolTip = BuildInfo.supportURL.absoluteString
         menu.addItem(support)
 
+        menu.addItem(.separator())
         let quit = NSMenuItem(
             title: "Quit Corral",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )
         menu.addItem(quit)
+    }
+
+    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+        let entry = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        entry.target = MenuBuilder.shared
+        return entry
     }
 
     private func disabled(_ title: String) -> NSMenuItem {
@@ -342,10 +255,8 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
         MainActor.assumeIsolated { AboutPanel.show() }
     }
 
-    @objc func setAppearance(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let mode = AppearanceMode(rawValue: raw) else { return }
-        MainActor.assumeIsolated { AppearanceController.shared.mode = mode }
+    @objc func openSettings() {
+        MainActor.assumeIsolated { SettingsWindow.show() }
     }
 
     @objc func showUsage() {
@@ -354,31 +265,5 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
 
     @objc func reportProblem() {
         NSWorkspace.shared.open(BuildInfo.supportURL)
-    }
-
-    @objc func toggleKiroAccount() {
-        MainActor.assumeIsolated { KiroAccountSetup.toggle() }
-    }
-
-    @objc func setUpUsage(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let tool = Tool(rawValue: raw),
-              let target = StatusLineSetup.Target.of(tool)
-        else { return }
-        MainActor.assumeIsolated { StatusLineSetup.offer(target) }
-    }
-
-    @objc func setPlacement(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let placement = PanelPlacement(rawValue: raw) else { return }
-        MainActor.assumeIsolated { PanelSettings.shared.placement = placement }
-    }
-
-    @objc func hideMenuBarItem() {
-        MainActor.assumeIsolated {
-            let settings = PanelSettings.shared
-            guard !settings.wouldStrandTheApp(turningOffMenuBar: true) else { return }
-            settings.showsMenuBarItem = false
-        }
     }
 }

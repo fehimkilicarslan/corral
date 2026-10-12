@@ -85,7 +85,7 @@ idle, what it spawned, and what it is costing you.
   stretched across it — and a stretch when Corral was not running stays empty
   too, because it will not draw across a sleep it did not observe.
 - **Light or dark.** Corral follows the system, or you can pin it either way
-  from the app menu or the menu bar item — a window you leave open all day is
+  in Settings (⌘,) — a window you leave open all day is
   the kind you might want dark on a light desktop.
 - **Sorting.** By how long it has been running (the default — the thing you
   forgot about is the thing you came here to find), by memory, by CPU across the
@@ -165,8 +165,8 @@ and the plan on the pill comes from its sign-in file rather than from the last
 turn, so an upgrade shows the day it happens rather than the next time Codex
 runs. The
 other two record nothing — but both hand their figures to a status line command
-on every update, and Corral can be that command. Turn it on from the menu bar
-item, **Report Usage to Corral**, or from the Usage tab. It asks first, shows
+on every update, and Corral can be that command. Turn it on in **Settings**
+(⌘, — or *Settings…* on the menu bar item), or from the Usage tab. It asks first, shows
 the exact setting it will add to `~/.claude/settings.json` or
 `~/.cursor/cli-config.json`, keeps a timestamped copy of the file, and refuses
 to touch a status line you already set up.
@@ -191,8 +191,8 @@ agents are Kiro CLI engines it starts per session, so they read the same way
 and are listed under the Crew app.
 
 What the account has left is not on this Mac at all, and this is the one place
-Corral will use the network — off until you turn it on, from **Report Usage to
-Corral → Ask Kiro for Account Usage** or the Usage tab. It asks first, in a
+Corral will use the network — off until you turn it on, from **Settings → Ask
+Kiro for Account Usage** or the Usage tab. It asks first, in a
 dialog that says exactly what happens: every five minutes Corral reads the
 sign-in token Kiro CLI keeps in its own store, sends one HTTPS request to the
 fixed AWS host the Kiro IDE itself uses (`GetUsageLimits`), and keeps the

@@ -55,9 +55,6 @@ enum Entry {
 
 struct CorralApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @ObservedObject private var appearance = AppearanceController.shared
-    @ObservedObject private var panels = PanelSettings.shared
-    @ObservedObject private var kiroAccount = KiroAccountSettings.shared
 
     var body: some Scene {
         WindowGroup("Corral", id: AppState.mainWindow) {
@@ -73,44 +70,17 @@ struct CorralApp: App {
             // items would be worse than one incomplete one.
             CommandGroup(replacing: .appInfo) {
                 Button("About Corral") { AboutPanel.show() }
-                Divider()
-                // Also on the menu bar item's menu. Somebody who turned that
-                // off still has to be able to find this.
-                Menu("Report Usage to Corral") {
-                    ForEach(StatusLineSetup.Target.all, id: \.tool) { agent in
-                        Button(agent.name) { StatusLineSetup.offer(agent) }
-                    }
-                    Divider()
-                    // The one network call in the app, behind a dialog that
-                    // says so. See `KiroAccount`.
-                    Toggle(
-                        KiroAccountSetup.title,
-                        isOn: Binding(
-                            get: { kiroAccount.isEnabled },
-                            set: { on in on ? KiroAccountSetup.offer() : KiroAccountSetup.turnOff() }
-                        )
-                    )
-                }
-                Picker("Usage Panel", selection: $panels.placement) {
-                    ForEach(PanelPlacement.allCases) { option in
-                        Text(option.label).tag(option)
-                    }
-                }
-                // The one place the menu bar item can be turned back *on*, so
-                // it is never conditional — only turning it off is, and only
-                // when it is the last way back into the app.
-                Toggle("Menu Bar Item", isOn: $panels.showsMenuBarItem)
-                    .disabled(
-                        panels.showsMenuBarItem
-                            && panels.wouldStrandTheApp(turningOffMenuBar: true)
-                    )
-                Divider()
-                Picker("Appearance", selection: $appearance.mode) {
-                    ForEach(AppearanceMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
             }
+            // Every setting is in one window, behind the shortcut every Mac app
+            // uses. They used to sit here as five items of their own, repeated
+            // under other names on the menu bar item's menu.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { SettingsWindow.show() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            // One window, which reopens itself. A second copy of it, from
+            // File ▸ New Window, showed the same agents twice and nothing more.
+            CommandGroup(replacing: .newItem) {}
             // The stock Help item searches a help book Corral does not have.
             // What it has is an issue tracker, which is where help comes from.
             CommandGroup(replacing: .help) {
@@ -156,7 +126,11 @@ final class AppState {
     func openWindow(selecting pid: pid_t? = nil) {
         if let pid { agents.selection = pid }
         NSApp.setActivationPolicy(.regular)
-        if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }) {
+        // The main window, not whichever window is in front: with Settings open,
+        // "Open Corral" would otherwise bring Settings forward and stop there.
+        if let window = NSApp.windows.first(where: {
+            $0.canBecomeMain && $0.isVisible && $0.identifier != SettingsWindow.identifier
+        }) {
             window.makeKeyAndOrderFront(nil)
         } else if let windowOpener {
             windowOpener()
