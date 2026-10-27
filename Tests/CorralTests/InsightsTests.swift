@@ -352,6 +352,53 @@ final class InsightsTests: XCTestCase {
         XCTAssertEqual(ArchetypeCatalog.pick(BadgeCatalog.evaluate(report { _ in })), ArchetypeCatalog.explorer)
     }
 
+    /// Calm Debugger is gold for nearly everyone, because agents rarely retry
+    /// blind; it used to make a Verifier of anyone who had run a few tests.
+    func testACalmAgentDoesNotMakeAVerifier() {
+        let badges = BadgeCatalog.evaluate(report {
+            $0.sessions = 10
+            $0.editingSessions = 10
+            $0.verifyShare = 0.35
+            $0.errors = 30
+            $0.blindRetryShare = 0.01
+            $0.prompts = 40
+            $0.steering = 45
+            $0.contextResets = 12
+        })
+        XCTAssertEqual(badges.first { $0.id == "calm" }?.tier, .gold)
+        XCTAssertEqual(ArchetypeCatalog.pick(badges).title, "The Navigator")
+    }
+
+    /// Same tiers, Conductor listed first: the one further along still wins.
+    func testATieOnTiersGoesToTheOneFurtherAlong() {
+        let badges = BadgeCatalog.evaluate(report {
+            $0.sessions = 10
+            $0.peakParallel = 3
+            $0.dispatches = 60
+            $0.longestRun = 2.5 * 3_600
+            $0.prompts = 40
+            $0.steering = 90
+            $0.counterProposals = 6
+            $0.contextResets = 25
+        })
+        let tiers = Dictionary(uniqueKeysWithValues: badges.map { ($0.id, $0.tier.rawValue) })
+        XCTAssertEqual(tiers["conductor"]! + tiers["delegator"]! + tiers["marathon"]!,
+                       tiers["steer"]! + tiers["pushback"]! + tiers["context"]!)
+        XCTAssertEqual(ArchetypeCatalog.pick(badges).title, "The Navigator")
+    }
+
+    /// Being close to bronze everywhere is still exploring.
+    func testProgressWithoutABadgeIsStillTheExplorer() {
+        let badges = BadgeCatalog.evaluate(report {
+            $0.sessions = 10
+            $0.plannedShare = 0.12
+            $0.prompts = 40
+            $0.steering = 9
+        })
+        XCTAssertTrue(BadgeCatalog.earned(badges).isEmpty)
+        XCTAssertEqual(ArchetypeCatalog.pick(badges), ArchetypeCatalog.explorer)
+    }
+
     func testEarnedIsBestFirst() {
         let badges = BadgeCatalog.evaluate(report {
             $0.sessions = 20

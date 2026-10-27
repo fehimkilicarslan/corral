@@ -379,7 +379,10 @@ that changed code, say) stays locked and says so, rather than rewarding or
 scolding three sessions.
 
 **An archetype** — the Architect, the Verifier, the Conductor, the Navigator,
-the Shipper, the Night Owl — is the group of badges you are strongest in. Under
+the Shipper, the Night Owl — is the group of badges you are strongest in,
+counting how far each badge is towards its next tier. Calm Debugger stays out of
+it: whether a failed command is run again blind says more about the agent than
+about you, and nearly everyone's agent earns that one gold. Under
 the badges, **Next** picks the measurable habits still below silver and says
 one thing to try for each.
 
