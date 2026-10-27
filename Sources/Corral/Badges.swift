@@ -279,14 +279,19 @@ enum ArchetypeCatalog {
         line: "Still finding a rhythm. Every badge is open."
     )
 
-    /// In order: a tie goes to the one listed first.
+    /// In order: a tie goes to the one listed first, though with progress in
+    /// the score a tie is rare.
+    ///
+    /// Calm Debugger is not in any group. A blind retry is the agent's habit
+    /// more than the person's, agents now hardly ever make one, and as a third
+    /// of the Verifier it handed nearly everyone a gold to start from.
     private static let all: [(Archetype, [String])] = [
         (Archetype(title: "The Architect", symbol: "building.columns",
                    line: "Plans before building, and writes the rules down."),
          ["plan", "codify", "testFirst"]),
         (Archetype(title: "The Verifier", symbol: "checkmark.shield",
                    line: "Trusts what passes, not what is promised."),
-         ["verify", "testFirst", "calm"]),
+         ["verify", "testFirst"]),
         (Archetype(title: "The Conductor", symbol: "square.stack.3d.up",
                    line: "Keeps several agents busy at once."),
          ["conductor", "delegator", "marathon"]),
@@ -301,18 +306,30 @@ enum ArchetypeCatalog {
          ["night", "marathon"]),
     ]
 
+    /// The group that stands highest. A badge counts its tier and how far it
+    /// is towards the next, so a silver nearly at gold outranks one just
+    /// reached, and groups on the same tiers are not settled by which is
+    /// listed first. A group with nothing earned is no candidate however close
+    /// it is: that person is still the Explorer.
     static func pick(_ badges: [Badge]) -> Archetype {
-        let tiers = Dictionary(uniqueKeysWithValues: badges.map { ($0.id, $0.tier.rawValue) })
+        let byID = Dictionary(uniqueKeysWithValues: badges.map { ($0.id, $0) })
         var best = explorer
         var bestScore = 0.0
         for (archetype, ids) in all {
-            let score = Double(ids.reduce(0) { $0 + (tiers[$1] ?? 0) }) / Double(ids.count * 3)
+            let group = ids.compactMap { byID[$0] }
+            guard group.contains(where: { $0.tier > .locked }) else { continue }
+            let score = group.reduce(0) { $0 + standing($1) } / Double(ids.count * 3)
             if score > bestScore {
                 best = archetype
                 bestScore = score
             }
         }
         return best
+    }
+
+    /// The tier and the way towards the next, 0–3.
+    private static func standing(_ badge: Badge) -> Double {
+        Double(badge.tier.rawValue) + (badge.tier < .gold ? badge.progress : 0)
     }
 }
 
