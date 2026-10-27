@@ -81,6 +81,7 @@ struct CorralApp: App {
             // items would be worse than one incomplete one.
             CommandGroup(replacing: .appInfo) {
                 Button("About Corral") { AboutPanel.show() }
+                Button("Check for Updates…") { UpdateChecker.shared.check(manual: true) }
             }
             // Every setting is in one window, behind the shortcut every Mac app
             // uses. They used to sit here as five items of their own, repeated
@@ -89,6 +90,7 @@ struct CorralApp: App {
                 Button("Settings…") { SettingsWindow.show() }
                     .keyboardShortcut(",", modifiers: .command)
             }
+            CommandGroup(before: .toolbar) { PaneCommands() }
             // One window, which reopens itself. A second copy of it, from
             // File ▸ New Window, showed the same agents twice and nothing more.
             CommandGroup(replacing: .newItem) {}
@@ -189,6 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .store(in: &cancellables)
 
             EdgePanelController.shared.apply(model: AppState.shared.agents)
+
+            // Asks the first time, then checks only if the answer was yes.
+            UpdateChecker.shared.start()
         }
 
         // Closing the last window is when Corral leaves the Dock. See

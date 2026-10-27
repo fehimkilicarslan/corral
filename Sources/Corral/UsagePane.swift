@@ -131,8 +131,8 @@ struct UsagePane: View {
     }
 
     /// Two halves. The session files are read unasked, like Codex's; the
-    /// balance is on Kiro's servers, and asking for it is the one network
-    /// call in the app, which is why it has a switch and a sentence of its own.
+    /// balance is on Kiro's servers, and asking for it is one of the app's two
+    /// network calls, which is why it has a switch and a sentence of its own.
     private var kiroReporting: String {
         let sessions = KiroSessions.hasAnySession()
             ? "Each session's context and the credits every turn cost come from Kiro "
