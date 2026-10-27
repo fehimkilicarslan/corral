@@ -90,9 +90,52 @@ enum Theme {
     static let rowCorner: CGFloat = 10
 
     static var rowBackground: Color { Color(nsColor: .controlBackgroundColor) }
-    static var hairline: Color { Color.primary.opacity(0.08) }
-    static var subtle: Color { Color.primary.opacity(0.55) }
-    static var faint: Color { Color.primary.opacity(0.38) }
+
+    /// AppKit's own separator and secondary label, so that "Increase
+    /// contrast" in System Settings strengthens them along with every other
+    /// line and label on screen. A fixed opacity of `.primary` never hears
+    /// about that setting.
+    static var hairline: Color { Color(nsColor: .separatorColor) }
+    static var subtle: Color { Color(nsColor: .secondaryLabelColor) }
+
+    /// The quietest text that still carries meaning: captions, paths, the
+    /// time something happened.
+    ///
+    /// Not AppKit's tertiary label, which is a quarter-strength grey meant for
+    /// placeholders and comes out near 2:1 on a white row. This sits between
+    /// secondary and tertiary, a touch heavier in light mode, where the same
+    /// opacity reads weaker, and close to secondary once contrast is raised.
+    static let faint = adaptive(
+        light: NSColor.black.withAlphaComponent(0.45),
+        dark: NSColor.white.withAlphaComponent(0.42),
+        lightHigh: NSColor.black.withAlphaComponent(0.68),
+        darkHigh: NSColor.white.withAlphaComponent(0.68)
+    )
+
+    /// A colour with a value per appearance. AppKit resolves it against
+    /// whatever the view is drawn in — SwiftUI's colour scheme, a forced-dark
+    /// share card — and takes the high-contrast values, which fall back to the
+    /// plain ones, while "Increase contrast" is on. That setting is read from
+    /// the workspace as well as the appearance, because only the system can
+    /// make a high-contrast appearance: one asked for by name is plain Aqua.
+    static func adaptive(
+        light: NSColor, dark: NSColor, lightHigh: NSColor? = nil, darkHigh: NSColor? = nil
+    ) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let match = appearance.bestMatch(from: [
+                .aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua,
+            ])
+            let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+            let high = match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua
+                || NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            switch (isDark, high) {
+            case (false, false): return light
+            case (true, false): return dark
+            case (false, true): return lightHigh ?? light
+            case (true, true): return darkHigh ?? dark
+            }
+        })
+    }
 
     /// Window backdrop — a very slight vertical wash keeps a dense list from
     /// looking like a spreadsheet.
@@ -197,6 +240,52 @@ private struct PointerCursor: ViewModifier {
 
 extension View {
     func pointerCursor() -> some View { modifier(PointerCursor()) }
+}
+
+/// A surface you click — a row, a tile, the graph — that answers the moment
+/// the button goes down.
+///
+/// `onTapGesture` hears nothing until the button comes back up, so a row
+/// gave no sign it had been pressed until it had already opened. This shades
+/// the surface on the press itself, lifts it quickly on release, and, being a
+/// real button, lets a drag off the surface cancel. It does not shrink: AppKit's
+/// own controls never scale under the pointer, and a list of rows that did
+/// would feel like a web page rather than a Mac app.
+struct PressableStyle: ButtonStyle {
+    var cornerRadius: CGFloat = Theme.rowCorner
+    /// Told when a press starts and ends, for a surface whose shading belongs
+    /// to something larger than the button — a row whose Stop button sits
+    /// outside it. With this set, the style draws nothing itself.
+    var pressed: Binding<Bool>?
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .overlay {
+                if pressed == nil {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Theme.pressedShade.opacity(configuration.isPressed ? 1 : 0))
+                        .allowsHitTesting(false)
+                }
+            }
+            // On instantly, off in a blink: the press is the user's, the
+            // release is the interface catching up.
+            .animation(configuration.isPressed ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+            .onChange(of: configuration.isPressed) { pressed?.wrappedValue = $0 }
+    }
+}
+
+extension View {
+    /// This view as the label of a `PressableStyle` button, for a surface
+    /// already laid out as a whole that should simply become clickable.
+    func pressable(cornerRadius: CGFloat = Theme.rowCorner, action: @escaping () -> Void) -> some View {
+        Button(action: action) { self }
+            .buttonStyle(PressableStyle(cornerRadius: cornerRadius))
+    }
+}
+
+extension Theme {
+    /// Laid over a surface while it is held down.
+    static var pressedShade: Color { Color.primary.opacity(0.07) }
 }
 
 /// The search field, shared by both panes.

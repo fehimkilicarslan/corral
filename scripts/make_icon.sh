@@ -1,7 +1,9 @@
 #!/bin/bash
-# Regenerates Assets/AppIcon.icns (and the square marketing PNG) from the SVG
-# sources. Needs librsvg (`brew install librsvg`); iconutil ships with macOS.
-# The generated .icns is committed, so normal builds don't need this script.
+# Regenerates the icon: draws Assets/icon.svg and icon-square.svg with
+# scripts/draw_icon.py, then renders Assets/AppIcon.icns and the square
+# marketing PNG from them. Needs python3 and librsvg (`brew install librsvg`);
+# iconutil ships with macOS. The generated files are committed, so normal
+# builds don't need this script.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -10,6 +12,8 @@ command -v rsvg-convert >/dev/null || {
   echo "rsvg-convert not found — brew install librsvg" >&2
   exit 1
 }
+
+python3 -I scripts/draw_icon.py
 
 ICONSET="build/AppIcon.iconset"
 rm -rf "$ICONSET"

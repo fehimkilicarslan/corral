@@ -25,6 +25,14 @@ enum Entry {
             CLI.disk()
             return
         }
+        if args.contains("--insights") {
+            var days = 30
+            if let i = args.firstIndex(of: "--days"), args.count > i + 1, let n = Int(args[i + 1]) {
+                days = max(1, min(n, 90))
+            }
+            CLI.insights(days: days, json: args.contains("--json"))
+            return
+        }
         if args.contains("--list") {
             var filter: String?
             if let i = args.firstIndex(of: "--search"), args.count > i + 1 {
@@ -42,6 +50,8 @@ enum Entry {
               Corral --list --search <text>
                                    only agents matching a project, tool or pid
               Corral --disk        print what the tools have left on disk
+              Corral --insights [--days N] [--json]
+                                   habits and badges from your agent sessions
               Corral --list --json machine-readable output
               Corral --version     print version
               Corral --statusline <claude|cursor>
@@ -61,6 +71,7 @@ struct CorralApp: App {
             RootView()
                 .environmentObject(AppState.shared.agents)
                 .environmentObject(AppState.shared.disk)
+                .environmentObject(AppState.shared.insights)
                 .frame(minWidth: 880, minHeight: 540)
         }
         .windowToolbarStyle(.unifiedCompact)
@@ -102,6 +113,7 @@ final class AppState {
     static let shared = AppState()
     let agents = CorralViewModel()
     let disk = DiskViewModel()
+    let insights = InsightsViewModel()
 
     static let mainWindow = "main"
 
