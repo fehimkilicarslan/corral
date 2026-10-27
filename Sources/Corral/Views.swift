@@ -273,7 +273,7 @@ private struct HeaderGraph: View {
                 .strokeBorder(Theme.hairline, lineWidth: 1)
         )
         .contentShape(Rectangle())
-        .onTapGesture { model.cycleTrendRange() }
+        .pressable(cornerRadius: 7) { model.cycleTrendRange() }
         .pointerCursor()
         .help(
             "\(metric.label) over the last \(model.trendRange.label), in "
@@ -551,7 +551,9 @@ private struct AgentRow: View {
     @EnvironmentObject private var model: CorralViewModel
     let group: AgentGroup
     @State private var hovering = false
+    @State private var pressed = false
     @State private var confirmingStop = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Always the group's activity, never the root process alone — see
     /// `GroupActivity`.
@@ -565,13 +567,20 @@ private struct AgentRow: View {
         VStack(spacing: 0) {
             summary
             if isExpanded {
-                Divider().opacity(0.35).padding(.leading, 46)
-                DetailPanel(group: group)
+                VStack(spacing: 0) {
+                    Divider().opacity(0.35).padding(.leading, 46)
+                    DetailPanel(group: group)
+                }
+                .transition(.opacity)
             }
         }
         .background(
             RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous)
                 .fill(Theme.rowBackground.opacity(hovering ? 1 : 0.75))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous)
+                        .fill(Theme.pressedShade.opacity(pressed ? 1 : 0))
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.rowCorner, style: .continuous)
@@ -622,74 +631,88 @@ private struct AgentRow: View {
 
     private var summary: some View {
         HStack(spacing: 12) {
-            ToolGlyph(
-                tool: group.root.tool,
-                executablePath: group.root.executablePath,
-                terminal: group.root.tty != nil,
-                size: 18
-            )
-            .frame(width: 22)
+            // Everything but Stop is one button, so the press shows the moment
+            // it lands and a drag off the row cancels. Stop stays outside it:
+            // nesting it would make the one control you must never hit by
+            // mistake part of the target that opens the details.
+            Button(action: toggleDetails) {
+                HStack(spacing: 12) {
+                    ToolGlyph(
+                        tool: group.root.tool,
+                        executablePath: group.root.executablePath,
+                        terminal: group.root.tty != nil,
+                        size: 18
+                    )
+                    .frame(width: 22)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    // The project is the identity. The tool and version are
-                    // context — the exact inversion of what Activity Monitor
-                    // shows you, which is a version number and nothing else.
-                    Text(model.label(for: group))
-                        .font(.system(size: 13, weight: .semibold))
-                        .lineLimit(1)
-                    if group.root.tool.isProjectScoped, group.root.projectName == nil {
-                        Pill(text: "no project", color: Theme.faint)
-                    }
-                    Pill(text: group.root.title, color: accent)
-                }
-                HStack(spacing: 6) {
-                    Text(group.root.displayPath ?? group.root.executablePath ?? "—")
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(Theme.faint)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 7) {
+                            // The project is the identity. The tool and version are
+                            // context — the exact inversion of what Activity Monitor
+                            // shows you, which is a version number and nothing else.
+                            Text(model.label(for: group))
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                            if group.root.tool.isProjectScoped, group.root.projectName == nil {
+                                Pill(text: "no project", color: Theme.faint)
+                            }
+                            Pill(text: group.root.title, color: accent)
+                        }
+                        HStack(spacing: 6) {
+                            Text(group.root.displayPath ?? group.root.executablePath ?? "—")
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(Theme.faint)
+                                .lineLimit(1)
+                                .truncationMode(.head)
+                        }
 
-                // The last thing the agent said or did, from the log the tool
-                // writes for itself. Only some tools keep one, so the row has
-                // to read correctly without this line as well as with it.
-                if let note = model.sessionActivity(for: group) {
-                    HStack(spacing: 5) {
-                        Text(note.fromSubagent ? "SUBAGENT" : "LAST")
-                            .font(.system(size: 8.5, weight: .bold))
-                            .foregroundStyle(Theme.faint.opacity(0.7))
-                        Text(note.summary)
-                            .font(.system(size: 10.5))
-                            .foregroundStyle(Theme.faint)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Text(Date().timeIntervalSince(note.at).durationString)
-                            .font(.system(size: 9))
-                            .foregroundStyle(Theme.faint.opacity(0.7))
+                        // The last thing the agent said or did, from the log the tool
+                        // writes for itself. Only some tools keep one, so the row has
+                        // to read correctly without this line as well as with it.
+                        if let note = model.sessionActivity(for: group) {
+                            HStack(spacing: 5) {
+                                // Set apart by weight and case, not by fading it
+                                // further: below `faint` a label stops being legible.
+                                Text(note.fromSubagent ? "SUBAGENT" : "LAST")
+                                    .font(.system(size: 8.5, weight: .bold))
+                                    .foregroundStyle(Theme.faint)
+                                Text(note.summary)
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(Theme.faint)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Text(Date().timeIntervalSince(note.at).durationString)
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Theme.faint)
+                            }
+                        }
                     }
+
+                    Spacer(minLength: 8)
+
+                    contextMetric
+                    tokenMetric
+                    metric(group.totalResidentBytes.byteString, "memory")
+                    metric(group.root.uptime.durationString, "up")
+                    stateBadge
+
+                    // A disclosure *indicator*, not a button. It used to be the only
+                    // way to open the details, which put an 18-point target next to
+                    // Stop — the one control in the row you must never hit by mistake.
+                    // The whole bar opens the details now, so this only has to say
+                    // that it can be opened.
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .foregroundStyle(Theme.faint.opacity(hovering ? 1 : 0.6))
+                        .frame(width: 14)
                 }
+                .padding(.leading, 14)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
             }
-
-            Spacer(minLength: 8)
-
-            contextMetric
-            tokenMetric
-            metric(group.totalResidentBytes.byteString, "memory")
-            metric(group.root.uptime.durationString, "up")
-            stateBadge
-
-            // A disclosure *indicator*, not a button. It used to be the only
-            // way to open the details, which put an 18-point target next to
-            // Stop — the one control in the row you must never hit by mistake.
-            // The whole bar opens the details now, so this only has to say
-            // that it can be opened.
-            Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                .foregroundStyle(Theme.faint.opacity(hovering ? 1 : 0.6))
-                .frame(width: 14)
-                .animation(.easeInOut(duration: 0.15), value: isExpanded)
+            .buttonStyle(PressableStyle(pressed: $pressed))
+            .accessibilityHint(isExpanded ? "Hide details" : "Show child processes and paths")
 
             Button {
                 confirmingStop = true
@@ -704,16 +727,19 @@ private struct AgentRow: View {
             }
             .buttonStyle(.plain)
             .help(stopHelp)
+            .padding(.trailing, 14)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            model.selection = group.root.pid
+    }
+
+    /// Opens or closes the details, animated here at the click and nowhere
+    /// else. The list is rebuilt every two seconds, and a refresh must never
+    /// slide rows about; the chevron and the panel share this one transaction,
+    /// so they turn and fade as one. With Reduce Motion the panel just appears.
+    private func toggleDetails() {
+        model.selection = group.root.pid
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
             model.toggleExpanded(group.root.pid)
         }
-        .accessibilityAddTraits(.isButton)
-        .accessibilityHint(isExpanded ? "Hide details" : "Show child processes and paths")
     }
 
     private var stopHelp: String {

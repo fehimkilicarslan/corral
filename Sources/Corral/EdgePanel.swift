@@ -35,6 +35,23 @@ final class EdgePanelController {
     /// see `beginSettling`.
     private static let openDuration: TimeInterval = 0.24
     private static let settleDelay: TimeInterval = openDuration + 0.12
+    /// Closing is the interface tidying up after you have moved on, so it is
+    /// quicker than opening, which is you reaching for something.
+    private static let closeDuration: TimeInterval = 0.16
+
+    /// The curve for both directions: a strong ease-out that settles without
+    /// passing its mark. It used to overshoot and come back, for a little
+    /// life, but a hover carries no momentum to spend, and a bounce on every
+    /// pass of the pointer read as the edge wobbling rather than opening.
+    static let timing = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+
+    /// How long a move takes, or nil to make it at once. Reduce Motion gets
+    /// the new size immediately: a slide is the kind of motion that setting
+    /// exists to take away.
+    static func duration(opening: Bool, reduceMotion: Bool) -> TimeInterval? {
+        guard !reduceMotion else { return nil }
+        return opening ? openDuration : closeDuration
+    }
 
     private var window: HUDPanel?
     private var hosting: NSHostingView<AnyView>?
@@ -445,18 +462,14 @@ final class EdgePanelController {
     private func layout(animated: Bool) {
         guard let window, let screen = window.screen ?? NSScreen.main else { return }
         let frame = self.frame(on: screen)
-        guard animated else {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard animated, let duration = Self.duration(opening: expanded, reduceMotion: reduceMotion) else {
             window.setFrame(frame, display: true)
             return
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.openDuration
-            // Just past its own end and back. AppKit has no spring, and a
-            // control point above 1 is what overshoot there is — enough to give
-            // the edge some life, not so much that it bounces like a toy.
-            context.timingFunction = CAMediaTimingFunction(
-                controlPoints: 0.22, 1.18, 0.42, 1
-            )
+            context.duration = duration
+            context.timingFunction = Self.timing
             window.animator().setFrame(frame, display: true)
         }
     }
