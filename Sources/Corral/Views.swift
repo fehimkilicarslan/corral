@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum Pane: String, CaseIterable, Identifiable {
-    case agents, usage, disk
+    case agents, usage, insights, disk
 
     var id: String { rawValue }
 
@@ -10,6 +10,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .agents: return "Agents"
         case .usage: return "Usage"
+        case .insights: return "Insights"
         case .disk: return "On disk"
         }
     }
@@ -18,6 +19,7 @@ enum Pane: String, CaseIterable, Identifiable {
         switch self {
         case .agents: return "cpu"
         case .usage: return "gauge.with.needle"
+        case .insights: return "rosette"
         case .disk: return "internaldrive"
         }
     }
@@ -42,12 +44,13 @@ struct RootView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(maxWidth: 340)
+                .frame(maxWidth: 440)
                 .padding(.top, 11)
 
                 switch pane {
                 case .agents: ContentView()
                 case .usage: UsagePane()
+                case .insights: InsightsView()
                 case .disk: DiskView()
                 }
             }

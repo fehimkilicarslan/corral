@@ -98,6 +98,10 @@ idle, what it spawned, and what it is costing you.
 - **What they left on disk.** A second tab measures every cache, superseded
   version and log the tools have accumulated, sorted by how safe it is to
   remove. On the machine this was written on that came to 14 GB.
+- **How you work with them.** An Insights tab reads your Claude Code and Codex
+  transcripts and the git history next to them, and turns your habits —
+  planning first, testing before trusting, steering, running agents side by
+  side — into badges, with a card you can share. See [Insights](#insights).
 
 Supported: **Claude Code**, **Claude** (desktop), **Codex**, **Cursor** and its
 CLI agent, **Windsurf**, **Kiro CLI**, **Kiro Crew**, **Kiro** (the IDE) and
@@ -349,6 +353,73 @@ started — **2.8 s** for 13 agents on this machine, 1.7 s of it a single sessio
 of five billion tokens and 70 subagents — on a queue of its own. After that a pass
 every five seconds reads only what the agents have written since: **~4 ms**.
 
+## Insights
+
+You write software with agents mostly alone, with no sense of how you do it
+compared with last month. The transcripts already know: every prompt, every
+test run, every time you stopped the agent and turned it around. Insights reads
+them and answers in numbers you can check.
+
+```
+  The Verifier — Trusts what passes, not what is promised.
+  last 30 days · 34 sessions · 1758 prompts · 105 active hours · 434 commits
+
+  CRAFT
+    Locked  Plan First             9%               Bronze at 15%
+    Bronze  Proof, Not Promises    43%              Silver at 55%
+    Gold    Calm Debugger          1%
+    …
+```
+
+**Badges.** Nineteen habits in five groups — craft, steering, orchestration,
+output, rhythm — each with a bronze, silver and gold bar. Every badge says what
+it measured and what the next tier needs; click one to see all three bars with
+you placed among them. One with too little behind it (fewer than five sessions
+that changed code, say) stays locked and says so, rather than rewarding or
+scolding three sessions.
+
+**An archetype** — the Architect, the Verifier, the Conductor, the Navigator,
+the Shipper, the Night Owl — is the group of badges you are strongest in. Under
+the badges, **Next** picks the measurable habits still below silver and says
+one thing to try for each.
+
+**Plates.** Every badge has a picture, and none of them is a photograph or an
+image file. Each is a small generative scene — a blueprint with contour lines
+for planning, a wall of test results under a check, a heartbeat settling into a
+flat line, a contribution grid, a crescent over a ridge — computed cell by cell
+and printed through a Bayer 8×8 ordered dither in the badge's metal, like a
+one-bit screen. Some are drawn from your own numbers: the conductor has as many
+waves as you ran agents at once, the delegator as many spokes as it sent
+subagents, the streak's flame grows with the streak. Each is labelled like a
+figure in a manual, `FIG.03 · test-first`.
+
+**English and Turkish.** Thanks, pushback and "run the tests" are matched in
+both, with accents and the dotless ı folded away, because a pattern written for
+English alone reads a Turkish speaker as someone who never thanks the agent and
+never pushes back.
+
+**Git.** A commit counts as made with an agent when it landed in the session's
+repository while the session was at work, or when the transcript recorded its
+hash. Only your commits: the repository's configured email. Corral uses a real
+git binary (Homebrew, the command line tools or Xcode) and never `/usr/bin/git`,
+which on a Mac without developer tools would pop an install dialog.
+
+**The card.** *Share card* draws a 1200×630 picture — archetype, best five
+badges with their plates, active hours, sessions, commits, agents at once, and
+the archetype's own plate open in a window from the first Macs, striped title
+bar, close box and all — and offers Copy
+Image, Save PNG, the system share menu, Post on X and Post on LinkedIn. The last
+two open the network's own compose page with the text filled in and the card on
+the clipboard to paste. *README Badge* saves a self-contained SVG and copies the
+Markdown to show it. No project names and no prompts are on any of them, and
+none of them goes anywhere until you send it.
+
+The first look reads every transcript from the last 90 days once — on the
+machine this was written on, about ten seconds. After that only files that
+changed are read again. Codex support is lighter than Claude Code's: its newest
+rollouts run commands from a small script rather than naming them, so Insights
+reads prompts, commands, failures and interrupts there, and leaves the rest.
+
 ## On disk
 
 ```
@@ -474,6 +545,8 @@ Corral --list                  # human-readable
 Corral --list --json           # machine-readable
 Corral --list --search recall  # only agents matching a project, tool or pid
 Corral --disk           # what is on disk (read-only; nothing is deleted)
+Corral --insights       # habits and badges from the last 30 days
+Corral --insights --days 90 --json   # the same figures for a script, or an agent
 Corral --bench          # how much a refresh costs
 ```
 
@@ -513,11 +586,22 @@ The token ledger holds counts, the paths of the logs they came from and the
 project folders they were spent in. Nothing an agent said is copied out of a
 transcript.
 
+Insights reads transcripts in full, in memory, and keeps what it found in
+`~/Library/Application Support/Corral/insights.json`: counts, times, project
+folders and commit hashes. The one thing derived from what you typed is a short
+hash of each prompt of eight words or fewer, so the same prompt sent forty times
+can be recognised without being written down. It runs `git log` and
+`git config user.email` in the repositories your sessions ran in, read-only.
+
 Nothing leaves your machine, with one exception you have to turn on yourself:
 **Ask Kiro for Account Usage** sends Kiro CLI's own sign-in token to Kiro's
 servers to read the account's credit balance, and nothing else. It is off by
 default, asks before it starts, and is described in full under
 [Usage](#usage). Every other line of the app is file reads.
+
+Sharing an Insights card is something you do, not something Corral does: Post
+on X and Post on LinkedIn open the network's compose page in your browser with
+the text filled in, and you decide whether to send it.
 
 ## Something wrong?
 

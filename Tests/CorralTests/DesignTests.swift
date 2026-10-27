@@ -55,6 +55,39 @@ final class DesignTests: XCTestCase {
         XCTAssertLessThan(contrastOnRow(Theme.faint, .light), contrastOnRow(Theme.subtle, .light))
     }
 
+    /// Bronze, silver and gold are used as text: "Top tier", the tier pills,
+    /// the badge count. Gold on white was 2:1.
+    func testTierColoursReadAsTextInBothAppearances() {
+        let white = NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        let dark = NSColor(srgbRed: 0.12, green: 0.12, blue: 0.12, alpha: 1)
+        for tier in [BadgeTier.bronze, .silver, .gold] {
+            XCTAssertGreaterThan(contrast(sample(Rectangle().fill(tier.color), .light), white), 4.5, tier.title)
+            XCTAssertGreaterThan(contrast(sample(Rectangle().fill(tier.color), .dark), dark), 4.5, tier.title)
+        }
+    }
+
+    /// The share card forces dark, so it keeps the bright metals even when the
+    /// app around it is light.
+    func testForcedDarkResolvesTheDarkMetal() {
+        let gold = sample(Rectangle().fill(BadgeTier.gold.color), .dark)
+        XCTAssertEqual(Double(gold.redComponent), 0.91, accuracy: 0.02)
+    }
+
+    // ─ Plates ───────────────────────────────────────────────────────────────
+
+    /// On a white page the half-tone prints heavier, or a light-mode plate is
+    /// a pale wash.
+    func testLightInkPrintsAHeavierHalfTone() {
+        func halfTone(_ ink: DitherArt.Ink) -> Set<UInt8> {
+            let image = DitherArt.render({ _ in 0.5 }, ink: ink, cols: 16, rows: 16)!
+            let bytes = [UInt8](image.dataProvider!.data! as Data)
+            return Set(stride(from: 3, to: bytes.count, by: 4).map { bytes[$0] })
+        }
+        let gold = BadgeTier.gold.ink
+        XCTAssertEqual(halfTone(gold), [UInt8((0.42 * 255).rounded())])
+        XCTAssertEqual(halfTone(gold.onLight), [UInt8((0.62 * 255).rounded())])
+    }
+
     // ─ Motion ───────────────────────────────────────────────────────────────
 
     func testEdgePanelMotion() {
@@ -71,5 +104,27 @@ final class DesignTests: XCTestCase {
             EdgePanelController.timing.getControlPoint(at: index, values: &point)
             XCTAssertLessThanOrEqual(point[1], 1)
         }
+    }
+
+    // ─ Numbers and the ladder ───────────────────────────────────────────────
+
+    func testCountsAreGroupedAndTheLadderIsShown() {
+        var report = InsightReport(days: 90, since: Date())
+        report.sessions = 40
+        report.dispatches = 1_234
+        let badges = BadgeCatalog.evaluate(report)
+
+        let delegator = badges.first { $0.id == "delegator" }!
+        XCTAssertEqual(delegator.value, "\(1_234.formatted()) subagents")
+        XCTAssertEqual(delegator.ladder, ["10 subagents", "50 subagents", "200 subagents"])
+        XCTAssertFalse(delegator.lowerIsBetter)
+
+        let calm = badges.first { $0.id == "calm" }!
+        XCTAssertEqual(calm.ladder, ["12%", "6%", "2%"])
+        XCTAssertTrue(calm.lowerIsBetter)
+        XCTAssertFalse(calm.hasData, "a locked badge still shows the ladder it is judged on")
+
+        let post = ShareText.post(report: report, archetype: ArchetypeCatalog.pick(badges), badges: badges)
+        XCTAssertTrue(post.contains("\(40.formatted()) sessions"))
     }
 }
