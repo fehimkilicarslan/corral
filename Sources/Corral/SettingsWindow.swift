@@ -46,6 +46,7 @@ struct SettingsView: View {
     @ObservedObject private var panels = PanelSettings.shared
     @ObservedObject private var appearance = AppearanceController.shared
     @ObservedObject private var kiro = KiroAccountSettings.shared
+    @ObservedObject private var updates = UpdateChecker.shared
 
     /// Bumped whenever the window comes forward. The status lines live in other
     /// apps' settings files, which can change behind Corral's back, so what
@@ -65,7 +66,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(KiroAccountSetup.title)
                         Text("Asks Kiro's servers what the account has left, every five "
-                            + "minutes — the only thing in Corral that uses the network, "
+                            + "minutes — one of the two things in Corral that use the network, "
                             + "so it asks before it starts.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -120,6 +121,29 @@ struct SettingsView: View {
 
                 Picker("Appearance", selection: $appearance.mode) {
                     ForEach(AppearanceMode.allCases) { Text($0.label).tag($0) }
+                }
+            }
+
+            Section("Updates") {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { updates.isEnabled == true },
+                        set: { updates.setEnabled($0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Check for updates automatically")
+                            Text("Asks GitHub for the latest release when Corral opens and "
+                                + "once a day. Nothing else is sent, and nothing is installed.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(updates.summary())
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Button("Check Now") { updates.check(manual: true) }
+                        .disabled(updates.status == .checking)
                 }
             }
         }

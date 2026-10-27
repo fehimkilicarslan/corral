@@ -184,6 +184,7 @@ final class StatusItemController {
         // Corral is usable with its window closed, so "which build am I
         // running" has to be answerable from here too.
         menu.addItem(item("About Corral", #selector(MenuBuilder.showAbout)))
+        menu.addItem(item("Check for Updates…", #selector(MenuBuilder.checkForUpdates)))
         let support = item("Report a Problem…", #selector(MenuBuilder.reportProblem))
         support.toolTip = BuildInfo.supportURL.absoluteString
         menu.addItem(support)
@@ -253,6 +254,10 @@ final class MenuBuilder: NSObject, NSMenuDelegate {
 
     @objc func showAbout() {
         MainActor.assumeIsolated { AboutPanel.show() }
+    }
+
+    @objc func checkForUpdates() {
+        MainActor.assumeIsolated { UpdateChecker.shared.check(manual: true) }
     }
 
     @objc func openSettings() {

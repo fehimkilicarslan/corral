@@ -46,8 +46,8 @@ enum KiroAccountSetup {
             Kiro does not write its balance anywhere on this Mac. The Kiro IDE shows \
             one by asking Kiro's servers, and Corral can do the same.
 
-            This is the only thing in Corral that uses the network, and it stays off \
-            until you say yes here.
+            Apart from the update check, which asks for itself, this is the only \
+            thing in Corral that uses the network, and it stays off until you say yes here.
 
             What it does, every five minutes:
 
@@ -91,7 +91,8 @@ enum KiroAccountSetup {
         case .off:
             return "Not asked. Kiro keeps the balance on its servers; Corral can ask "
                 + "for it every five minutes, using Kiro CLI's own sign-in, if you turn "
-                + "that on. It is the only thing in Corral that uses the network."
+                + "that on. Apart from the update check, it is the only thing in Corral that uses "
+                + "the network."
         case .asking:
             return "Asking Kiro's servers now."
         case .answered(let at):

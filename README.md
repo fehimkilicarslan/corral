@@ -195,9 +195,10 @@ exact where every other reader has to reason from paths and times. Kiro Crew's
 agents are Kiro CLI engines it starts per session, so they read the same way
 and are listed under the Crew app.
 
-What the account has left is not on this Mac at all, and this is the one place
-Corral will use the network — off until you turn it on, from **Settings → Ask
-Kiro for Account Usage** or the Usage tab. It asks first, in a
+What the account has left is not on this Mac at all, and this is one of two
+places Corral will use the network (the other is the [update check](#updates)) —
+off until you turn it on, from **Settings → Ask Kiro for Account Usage** or the
+Usage tab. It asks first, in a
 dialog that says exactly what happens: every five minutes Corral reads the
 sign-in token Kiro CLI keeps in its own store, sends one HTTPS request to the
 fixed AWS host the Kiro IDE itself uses (`GetUsageLimits`), and keeps the
@@ -484,6 +485,19 @@ swift run Corral            # the window
 swift run Corral --list     # the same inventory, printed
 ```
 
+### Updates
+
+The first time a downloaded build opens, it asks whether to check for updates.
+Say yes and Corral sends one HTTPS request to `api.github.com` for the latest
+release when it opens and once a day while it stays open — no identifier, no
+version, nothing about your agents; GitHub sees a request from your address, as
+it would for any page you open. When there is a newer one it says so, once
+per release, with a link to the release page; it never downloads or installs
+anything itself. **Settings → Updates** turns it on or off, and **Check for
+Updates…** in the Corral menu and the menu bar item asks once, whenever you like,
+either way. A build made with `make app` or `swift run` never asks or checks by
+itself.
+
 ## Signing and notarisation
 
 Downloaded apps that Apple has not seen get stopped by Gatekeeper, so releases
@@ -597,11 +611,17 @@ hash of each prompt of eight words or fewer, so the same prompt sent forty times
 can be recognised without being written down. It runs `git log` and
 `git config user.email` in the repositories your sessions ran in, read-only.
 
-Nothing leaves your machine, with one exception you have to turn on yourself:
-**Ask Kiro for Account Usage** sends Kiro CLI's own sign-in token to Kiro's
-servers to read the account's credit balance, and nothing else. It is off by
-default, asks before it starts, and is described in full under
-[Usage](#usage). Every other line of the app is file reads.
+Nothing leaves your machine, with two exceptions you have to turn on yourself:
+
+- **Ask Kiro for Account Usage** sends Kiro CLI's own sign-in token to Kiro's
+  servers to read the account's credit balance, and nothing else. It is off by
+  default, asks before it starts, and is described in full under
+  [Usage](#usage).
+- **Check for updates automatically** asks GitHub for the latest release, with
+  nothing about you in the request. A downloaded build asks before the first
+  check; see [Updates](#updates).
+
+Every other line of the app is file reads.
 
 Sharing an Insights card is something you do, not something Corral does: Post
 on X and Post on LinkedIn open the network's compose page in your browser with
