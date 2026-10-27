@@ -64,6 +64,34 @@ struct RootView: View {
             AppState.shared.windowOpener = { openWindow(id: AppState.mainWindow) }
         }
         .onChange(of: model.runningVersions) { disk.runningVersions = $0 }
+        // Handed to the View menu, whose ⌘1–⌘4 turn the picker above.
+        .focusedSceneValue(\.pane, $pane)
+    }
+}
+
+extension FocusedValues {
+    private struct PaneKey: FocusedValueKey { typealias Value = Binding<Pane> }
+
+    /// The window's pane, while that window is in front.
+    var pane: Binding<Pane>? {
+        get { self[PaneKey.self] }
+        set { self[PaneKey.self] = newValue }
+    }
+}
+
+/// View ▸ Agents, Usage, Insights, On disk, on ⌘1–⌘4 in the picker's order,
+/// as Safari and Xcode number their tabs. With the window closed or behind
+/// Settings there is no pane to turn, and the items are dimmed.
+struct PaneCommands: View {
+    @FocusedBinding(\.pane) private var pane
+
+    var body: some View {
+        ForEach(Array(Pane.allCases.enumerated()), id: \.element) { index, item in
+            Button(item.title) { pane = item }
+                .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+                .disabled(pane == nil)
+        }
+        Divider()
     }
 }
 

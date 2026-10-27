@@ -89,6 +89,7 @@ struct CorralApp: App {
                 Button("Settings…") { SettingsWindow.show() }
                     .keyboardShortcut(",", modifiers: .command)
             }
+            CommandGroup(before: .toolbar) { PaneCommands() }
             // One window, which reopens itself. A second copy of it, from
             // File ▸ New Window, showed the same agents twice and nothing more.
             CommandGroup(replacing: .newItem) {}

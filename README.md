@@ -92,6 +92,7 @@ idle, what it spawned, and what it is costing you.
   whole group, or by project name. Each order has an obvious direction, so
   picking one applies it; picking the same one again reverses it. Remembered
   between launches.
+- **Tabs.** ⌘1 Agents, ⌘2 Usage, ⌘3 Insights, ⌘4 On disk — also under View.
 - **Search.** ⌘F in either pane. An agent matches on its project, path, tool,
   version, pid, terminal, command line — and on what it spawned, so searching
   for an MCP server finds the agent running it.
