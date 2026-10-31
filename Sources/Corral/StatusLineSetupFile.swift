@@ -1,0 +1,162 @@
+import Foundation
+
+/// What the status line setting is, and reading and writing it in the
+/// agent's own file. Kept apart from the dialogs that offer it, which need
+/// AppKit, so that this builds on Linux too.
+@MainActor
+enum StatusLineSetup {
+
+    /// One agent that can be asked to report.
+    struct Target {
+        let tool: Tool
+        let name: String
+        /// The agent's own settings file, which is not ours.
+        let file: URL
+        /// What `--statusline` is told, so the snapshot knows whose it is.
+        let argument: String
+        /// What turning this on actually gets you. The two tools differ, and
+        /// the dialog must not promise the one that does not.
+        let provides: String
+
+        static let claudeCode = Target(
+            tool: .claudeCode,
+            name: "Claude Code",
+            file: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".claude/settings.json"),
+            argument: "claude",
+            provides: "Corral will then show what your account has left — the five-hour "
+                + "and weekly windows — and the exact size of each session's context."
+        )
+
+        static let cursorAgent = Target(
+            tool: .cursorAgent,
+            name: "Cursor",
+            file: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cursor/cli-config.json"),
+            argument: "cursor",
+            provides: "Corral will then show how full each session's context is. Cursor "
+                + "does not publish what your account has left, to this or to anywhere "
+                + "else on this Mac, so that part will stay empty."
+        )
+
+        static let all: [Target] = [.claudeCode, .cursorAgent]
+
+        /// A one-line answer to "is this reporting, and if not why not".
+        var summary: String {
+            switch StatusLineSetup.state(file: file) {
+            case .installed: return "Reporting through its status line."
+            case .absent: return "Not set up. \(provides)"
+            case .taken(let command):
+                return "Its status line already runs something else — "
+                    + "\(command.prefix(60)) — and Corral will not replace it."
+            case .unreadable:
+                return "Corral cannot read \(file.lastPathComponent), so it cannot tell "
+                    + "whether reporting is on."
+            }
+        }
+
+        /// Whether there is anything for a button to do.
+        var canBeInstalled: Bool {
+            if case .absent = StatusLineSetup.state(file: file) { return true }
+            return false
+        }
+
+        static func of(_ tool: Tool) -> Target? {
+            switch tool {
+            case .claudeCode, .claudeDesktop: return .claudeCode
+            case .cursorAgent, .cursor: return .cursorAgent
+            default: return nil
+            }
+        }
+    }
+
+    enum State {
+        case installed
+        case absent
+        /// Someone else's status line is in the slot.
+        case taken(command: String)
+        case unreadable
+    }
+
+    // ─ Looking ──────────────────────────────────────────────────────────────
+
+    static func state(of target: Target) -> State { state(file: target.file) }
+
+    nonisolated static func state(file: URL) -> State {
+        guard let data = try? Data(contentsOf: file),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return .unreadable }
+
+        guard let line = root["statusLine"] as? [String: Any],
+              let command = line["command"] as? String
+        else { return .absent }
+
+        return command.contains("--statusline") && command.contains("Corral")
+            ? .installed
+            : .taken(command: command)
+    }
+
+    static func command(for target: Target) -> String {
+        let path = Bundle.main.executablePath ?? "/Applications/Corral.app/Contents/MacOS/Corral"
+        // Quoted because an app someone renamed can easily have a space in its
+        // path, and the command runs through a shell.
+        return "\"\(path)\" --statusline \(target.argument)"
+    }
+
+    // ─ Writing ──────────────────────────────────────────────────────────────
+
+    enum Outcome {
+        case added(backup: URL?)
+        case failed(String)
+    }
+
+    /// Insert the setting textually, so nothing else in the file moves.
+    ///
+    /// Re-serialising the parsed JSON would be shorter and would also reorder
+    /// every key and drop every formatting choice the user made. A settings file
+    /// that comes back rearranged is a settings file the app has taken over.
+    static func install(_ target: Target, file: URL? = nil) -> Outcome {
+        let file = file ?? target.file
+        guard case .absent = state(file: file) else {
+            return .failed("The status line setting is not free.")
+        }
+        guard let original = try? String(contentsOf: file, encoding: .utf8) else {
+            return .failed("Could not read \(file.path).")
+        }
+        guard let brace = original.firstIndex(of: "{") else {
+            return .failed("\(file.path) does not look like a JSON object.")
+        }
+
+        let escaped = command(for: target)
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let insertion = "\n  \"statusLine\": { \"type\": \"command\", \"command\": \"\(escaped)\" },"
+
+        var updated = original
+        updated.insert(contentsOf: insertion, at: original.index(after: brace))
+
+        // Never leave the file worse than it was found. If the edit produced
+        // something that will not parse, it is not written at all.
+        guard let data = updated.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) != nil
+        else {
+            return .failed("The edit would have produced invalid JSON, so nothing was written.")
+        }
+
+        let backup = self.backup(original, beside: file)
+        do {
+            try updated.write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            return .failed(error.localizedDescription)
+        }
+        return .added(backup: backup)
+    }
+
+    private static func backup(_ contents: String, beside file: URL) -> URL? {
+        let stamp = Int(Date().timeIntervalSince1970)
+        let copy = file.deletingLastPathComponent()
+            .appendingPathComponent("\(file.lastPathComponent).corral-backup-\(stamp)")
+        try? contents.write(to: copy, atomically: true, encoding: .utf8)
+        return FileManager.default.fileExists(atPath: copy.path) ? copy : nil
+    }
+}
