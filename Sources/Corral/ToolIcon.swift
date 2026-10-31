@@ -22,7 +22,7 @@ import SwiftUI
 ///
 /// When neither finds anything, the caller falls back to the SF Symbol. An
 /// icon is a nicety; a row that fails to render is not.
-enum ToolIcon {
+extension ToolIcon {
 
     /// Resolved images, keyed by bundle path. `NSWorkspace.icon(forFile:)` hits
     /// the filesystem and decodes an ICNS, which is far too much to repeat for
@@ -32,16 +32,6 @@ enum ToolIcon {
     /// Bundle lookups that already failed, so a machine without Cursor
     /// installed does not re-scan the same directories forever.
     private static var resolved: [Tool: String?] = [:]
-
-    /// The bundle a path executes from, if any.
-    ///
-    /// Takes the *first* `.app/` in the path rather than the last: an Electron
-    /// helper lives at `Cursor.app/Contents/Frameworks/Cursor Helper.app/…`,
-    /// and the product is the outer bundle, not the helper's own.
-    static func bundlePath(forExecutable path: String) -> String? {
-        guard let range = path.range(of: ".app/") else { return nil }
-        return String(path[path.startIndex..<range.lowerBound]) + ".app"
-    }
 
     /// Desktop apps to fall back to, per tool. A CLI agent borrows its vendor's
     /// icon; that is the association a user already has.

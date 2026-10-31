@@ -1,25 +1,5 @@
 import SwiftUI
 
-/// Which screen edge the panel is attached to.
-enum HUDAnchor: String, CaseIterable, Identifiable {
-    case top, right, left
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .top: return "Top"
-        case .right: return "Right Edge"
-        case .left: return "Left Edge"
-        }
-    }
-
-    /// The two side edges share one behaviour — a line that opens into a rail
-    /// of rings when the pointer arrives — and differ only in which way the
-    /// rail is uncovered and which side the popover sits on.
-    var isRail: Bool { self != .top }
-}
-
 /// The outline of a panel that grows out of the edge of the screen.
 ///
 /// One detail carries the whole effect, and it is the one that looks like a
